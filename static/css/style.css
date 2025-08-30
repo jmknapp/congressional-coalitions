@@ -1,0 +1,249 @@
+/* Custom styles for Congressional Coalition Analysis Dashboard */
+
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease-in-out;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px 10px 0 0 !important;
+    border: none;
+}
+
+.card-header h5 {
+    margin: 0;
+    font-weight: 600;
+}
+
+.table {
+    margin-bottom: 0;
+}
+
+.table th {
+    border-top: none;
+    font-weight: 600;
+    color: #495057;
+    background-color: #f8f9fa;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.party-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.party-d {
+    background-color: #007bff;
+    color: white;
+}
+
+.party-r {
+    background-color: #dc3545;
+    color: white;
+}
+
+.party-i {
+    background-color: #6c757d;
+    color: white;
+}
+
+.vote-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.vote-yea {
+    background-color: #28a745;
+    color: white;
+}
+
+.vote-nay {
+    background-color: #dc3545;
+    color: white;
+}
+
+.vote-present {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.vote-not-voting {
+    background-color: #6c757d;
+    color: white;
+}
+
+/* Question column styling for two-line display */
+.table td:nth-child(2) {
+    min-width: 300px;
+    max-width: 400px;
+}
+
+.table td:nth-child(2) div:first-child {
+    font-weight: 500;
+    color: #495057;
+    margin-bottom: 2px;
+}
+
+.table td:nth-child(2) div:last-child {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+/* Party column width constraint for members table */
+#members-table th:nth-child(2),
+#members-table td:nth-child(2) {
+    width: 80px;
+    max-width: 80px;
+    min-width: 80px;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.loading {
+    text-align: center;
+    padding: 2rem;
+}
+
+.loading i {
+    font-size: 2rem;
+    color: #007bff;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.analysis-summary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+}
+
+.analysis-summary h4 {
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.analysis-metric {
+    text-align: center;
+    padding: 1rem;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    margin: 0.5rem;
+}
+
+.analysis-metric h3 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.analysis-metric p {
+    margin: 0;
+    opacity: 0.9;
+}
+
+.coalition-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 0.5rem 0;
+    border-left: 4px solid #007bff;
+}
+
+.coalition-card h6 {
+    color: #007bff;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.coalition-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.member-chip {
+    background: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.75rem;
+    color: #495057;
+}
+
+.member-chip.party-d {
+    background-color: #0d6efd;
+    color: #ffffff;
+}
+
+.member-chip.party-r {
+    background-color: #dc3545;
+    color: #ffffff;
+}
+
+.member-chip.party-i, .member-chip.party-u {
+    background-color: #6c757d;
+    color: #ffffff;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+.table-responsive {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .analysis-metric h3 {
+        font-size: 1.5rem;
+    }
+}

@@ -1,0 +1,26 @@
+# Core data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Network analysis
+networkx>=3.0
+python-louvain>=0.15
+
+# Database
+sqlalchemy>=2.0.0
+mysqlclient>=2.1.0
+
+# HTTP requests and data fetching
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Configuration and CLI
+click>=8.1.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Utilities
+tqdm>=4.65.0
+python-dateutil>=2.8.0
+pytz>=2023.3

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill {{ bill.bill_id if bill else '' }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="/">Congressional Coalition Analysis</a>
+    </div>
+</nav>
+<div class="container mt-4">
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% else %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>Bill {{ bill.type|upper }} {{ bill.number }} ({{ bill.bill_id }})</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <p class="mb-1"><strong>Congress:</strong> {{ bill.congress }} | <strong>Chamber:</strong> {{ bill.chamber|title }}</p>
+                        <p class="mb-1"><strong>Introduced:</strong> {{ bill.introduced_date }}</p>
+                        <p class="mb-3"><strong>Title:</strong> {{ bill.title }}</p>
+                        {% if sponsor %}
+                            <p class="mb-0"><strong>Sponsor:</strong> {{ sponsor.first }} {{ sponsor.last }} ({{ sponsor.party }}-{{ sponsor.state }})</p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-grid gap-2">
+                            <a href="https://www.congress.gov/bill/{{ bill.congress }}-congress/{{ bill.type }}/{{ bill.number }}" 
+                               target="_blank" rel="noopener noreferrer" 
+                               class="btn btn-primary">
+                                <i class="fas fa-external-link-alt"></i> Congress.gov
+                            </a>
+                            <a href="https://www.govinfo.gov/app/details/BILLS-{{ bill.congress }}{{ bill.type }}{{ bill.number }}" 
+                               target="_blank" rel="noopener noreferrer" 
+                               class="btn btn-secondary">
+                                <i class="fas fa-file-alt"></i> GovInfo Text
+                            </a>
+                            <a href="https://www.congress.gov/bill/{{ bill.congress }}-congress/{{ bill.type }}/{{ bill.number }}/text" 
+                               target="_blank" rel="noopener noreferrer" 
+                               class="btn btn-info">
+                                <i class="fas fa-file-text"></i> Bill Text
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header"><h6>Cosponsors</h6></div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                <tr>
+                                    <th>Member</th>
+                                    <th>Party</th>
+                                    <th>State</th>
+                                    <th>Date</th>
+                                    <th>Original</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {% for c in cosponsors %}
+                                    <tr>
+                                        <td>{{ c.member_name }}</td>
+                                        <td><span class="party-badge party-{{ c.party|lower }}">{{ c.party }}</span></td>
+                                        <td>{{ c.state }}</td>
+                                        <td>{{ c.date }}</td>
+                                        <td>{{ 'Yes' if c.is_original else 'No' }}</td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header"><h6>Related Roll Calls</h6></div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                <tr>
+                                    <th>Roll Call</th>
+                                    <th>Date</th>
+                                    <th>Question</th>
+                                    <th>Link</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {% for r in rollcalls %}
+                                    <tr>
+                                        <td>{{ r.rollcall_id }}</td>
+                                        <td>{{ r.date }}</td>
+                                        <td>{{ r.question }}</td>
+                                        <td><a href="/vote/{{ r.rollcall_id }}" target="_blank" rel="noopener noreferrer">Open</a></td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

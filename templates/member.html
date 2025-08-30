@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Member Details - Congressional Coalition Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                Congressional Coalition Tracker
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Loading State -->
+        <div id="loading" class="text-center">
+            <i class="fas fa-spinner fa-spin fa-2x text-primary"></i>
+            <p class="mt-2">Loading member details...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="alert alert-danger" style="display: none;">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span id="error-message"></span>
+        </div>
+
+        <!-- Member Content -->
+        <div id="member-content" style="display: none;">
+            <!-- Member Header -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <h2 id="member-name" class="mb-2"></h2>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <span id="member-party-badge" class="party-badge me-3"></span>
+                                        <span id="member-chamber" class="text-muted"></span>
+                                    </div>
+                                    <p id="member-details" class="text-muted mb-0"></p>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <div class="text-center">
+                                                <h4 id="total-votes" class="text-primary mb-0">-</h4>
+                                                <small class="text-muted">Total Votes</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-center">
+                                                <h4 id="sponsored-count" class="text-success mb-0">-</h4>
+                                                <small class="text-muted">Sponsored Bills</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voting Statistics -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-chart-pie me-2"></i>Voting Statistics</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-4 text-center">
+                                    <div class="vote-stat">
+                                        <h3 id="yea-votes" class="text-success mb-1">-</h3>
+                                        <small class="text-muted">Yea Votes</small>
+                                        <div class="mt-1">
+                                            <small id="yea-percentage" class="text-muted">-</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-4 text-center">
+                                    <div class="vote-stat">
+                                        <h3 id="nay-votes" class="text-danger mb-1">-</h3>
+                                        <small class="text-muted">Nay Votes</small>
+                                        <div class="mt-1">
+                                            <small id="nay-percentage" class="text-muted">-</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-4 text-center">
+                                    <div class="vote-stat">
+                                        <h3 id="present-votes" class="text-warning mb-1">-</h3>
+                                        <small class="text-muted">Present</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-handshake me-2"></i>Cosponsorships</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="text-center">
+                                <h3 id="cosponsored-count" class="text-info mb-1">-</h3>
+                                <small class="text-muted">Cosponsored Bills</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sponsored Bills -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-file-alt me-2"></i>Sponsored Bills</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover" id="sponsored-bills-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Bill</th>
+                                            <th>Title</th>
+                                            <th>Introduced</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sponsored-bills-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="no-sponsored-bills" class="text-center text-muted" style="display: none;">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>No sponsored bills found</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Votes -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-vote-yea me-2"></i>Recent Votes</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover" id="recent-votes-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Roll Call</th>
+                                            <th>Question</th>
+                                            <th>Vote</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-votes-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="no-recent-votes" class="text-center text-muted" style="display: none;">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>No recent votes found</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Get member ID from URL
+        const memberId = '{{ bioguide_id }}';
+        
+        // Load member details
+        async function loadMemberDetails() {
+            try {
+                const response = await fetch(`/api/member/${memberId}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayMemberDetails(data);
+                } else {
+                    showError(data.error || 'Failed to load member details');
+                }
+            } catch (error) {
+                showError('Error loading member details: ' + error.message);
+            }
+        }
+        
+        function displayMemberDetails(data) {
+            const member = data.member;
+            const stats = data.voting_stats;
+            
+            // Member header
+            document.getElementById('member-name').textContent = member.name;
+            document.getElementById('member-party-badge').textContent = member.party;
+            document.getElementById('member-party-badge').className = `party-badge party-${member.party.toLowerCase()}`;
+            document.getElementById('member-chamber').textContent = member.chamber;
+            
+            const details = [];
+            if (member.state) details.push(member.state);
+            if (member.district) details.push(`District ${member.district}`);
+            if (member.start_date) details.push(`Since ${new Date(member.start_date).toLocaleDateString()}`);
+            document.getElementById('member-details').textContent = details.join(' • ');
+            
+            // Statistics
+            document.getElementById('total-votes').textContent = stats.total_votes;
+            document.getElementById('yea-votes').textContent = stats.yea_votes;
+            document.getElementById('nay-votes').textContent = stats.nay_votes;
+            document.getElementById('present-votes').textContent = stats.present_votes;
+            document.getElementById('yea-percentage').textContent = `${stats.yea_percentage}%`;
+            document.getElementById('nay-percentage').textContent = `${stats.nay_percentage}%`;
+            
+            // Counts
+            document.getElementById('sponsored-count').textContent = data.sponsored_bills.length;
+            document.getElementById('cosponsored-count').textContent = data.cosponsored_bills.length;
+            
+            // Sponsored bills
+            displaySponsoredBills(data.sponsored_bills);
+            
+            // Recent votes
+            displayRecentVotes(data.recent_votes);
+            
+            // Show content
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('member-content').style.display = 'block';
+        }
+        
+        function displaySponsoredBills(bills) {
+            const tbody = document.getElementById('sponsored-bills-tbody');
+            tbody.innerHTML = '';
+            
+            if (bills.length === 0) {
+                document.getElementById('no-sponsored-bills').style.display = 'block';
+                return;
+            }
+            
+            bills.forEach(bill => {
+                const row = document.createElement('tr');
+                const date = bill.introduced_date ? new Date(bill.introduced_date).toLocaleDateString() : '';
+                row.innerHTML = `
+                    <td><strong><a href="/bill/${bill.bill_id}" target="_blank" rel="noopener noreferrer">${bill.type} ${bill.number}</a></strong></td>
+                    <td>${(bill.title || '').substring(0, 60)}${(bill.title || '').length > 60 ? '...' : ''}</td>
+                    <td>${date}</td>
+                    <td>
+                        <a class="btn btn-sm btn-outline-primary" href="/bill/${bill.bill_id}" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-eye"></i> View
+                        </a>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        function displayRecentVotes(votes) {
+            const tbody = document.getElementById('recent-votes-tbody');
+            tbody.innerHTML = '';
+            
+            if (votes.length === 0) {
+                document.getElementById('no-recent-votes').style.display = 'block';
+                return;
+            }
+            
+            votes.forEach(vote => {
+                const row = document.createElement('tr');
+                const date = vote.date ? new Date(vote.date).toLocaleDateString() : '';
+                const voteClass = vote.vote_code === 'Yea' ? 'vote-yea' : vote.vote_code === 'Nay' ? 'vote-nay' : 'vote-present';
+                
+                // Create bill title display if bill_id exists
+                let billDisplay = '';
+                if (vote.bill_id) {
+                    // Extract bill type and number from bill_id (e.g., "hr-1234-119" -> "H.R. 1234")
+                    const billParts = vote.bill_id.split('-');
+                    if (billParts.length >= 2) {
+                        const billType = billParts[0].toUpperCase();
+                        const billNumber = billParts[1];
+                        const billTypeDisplay = billType === 'HR' ? 'H.R.' : billType === 'S' ? 'S.' : billType === 'HJRES' ? 'H.J.Res.' : billType === 'SJRES' ? 'S.J.Res.' : billType === 'HCONRES' ? 'H.Con.Res.' : billType === 'SCONRES' ? 'S.Con.Res.' : billType;
+                        const billTitle = vote.bill_title ? ` - ${vote.bill_title}` : '';
+                        billDisplay = `<div class="mb-1"><strong><a href="/bill/${vote.bill_id}" target="_blank" rel="noopener noreferrer">${billTypeDisplay} ${billNumber}${billTitle}</a></strong></div>`;
+                    }
+                }
+                
+                row.innerHTML = `
+                    <td>${date}</td>
+                    <td><strong><a href="/vote/${vote.rollcall_id}" target="_blank" rel="noopener noreferrer">${vote.rollcall_id}</a></strong></td>
+                    <td>
+                        ${billDisplay}
+                        <div>${(vote.question || '').substring(0, 60)}${(vote.question || '').length > 60 ? '...' : ''}</div>
+                    </td>
+                    <td><span class="vote-badge ${voteClass}">${vote.vote_code}</span></td>
+                    <td>
+                        <a class="btn btn-sm btn-outline-primary me-2" href="/vote/${vote.rollcall_id}" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-eye"></i> View Vote
+                        </a>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+        
+        // Load member details when page loads
+        document.addEventListener('DOMContentLoaded', loadMemberDetails);
+    </script>
+</body>
+</html>
