@@ -16,7 +16,8 @@ class DatabaseManager:
     """Manages database connections and sessions."""
     
     def __init__(self, database_url: Optional[str] = None):
-        self.database_url = database_url or os.getenv('DATABASE_URL', 'mysql://localhost/congressional_coalitions')
+        # Use the congressional user that was previously set up
+        self.database_url = database_url or os.getenv('DATABASE_URL', 'mysql://congressional:congressional123@localhost/congressional_coalitions')
         self.engine = None
         self.SessionLocal = None
         self._setup_engine()
