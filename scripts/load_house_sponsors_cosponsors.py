@@ -85,6 +85,35 @@ class HouseSponsorsCosponsorsLoader:
         
         return None
     
+    def fetch_cosponsors_from_congressgov(self, bill_id: str) -> Optional[List[Dict]]:
+        """Fetch co-sponsors data from Congress.gov API."""
+        congressgov_id = self.convert_bill_id_to_congressgov_format(bill_id)
+        if not congressgov_id:
+            logger.warning(f"Could not convert bill ID {bill_id} to Congress.gov format")
+            return None
+        
+        url = f"https://api.congress.gov/v3/bill/{congressgov_id}/cosponsors"
+        headers = {'X-API-Key': self.congressgov_api_key}
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                if 'cosponsors' in data:
+                    return data['cosponsors']
+                else:
+                    logger.warning(f"No cosponsors field in response for {bill_id}")
+                    return []
+            elif response.status_code == 429:
+                logger.warning(f"Rate limit hit for {bill_id} cosponsors")
+                return "RATE_LIMIT"
+            else:
+                logger.warning(f"Failed to fetch cosponsors for {bill_id} from Congress.gov: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching cosponsors for {bill_id} from Congress.gov: {e}")
+        
+        return None
+    
     def set_bill_sponsor(self, bill_id: str, sponsor_bioguide: str) -> bool:
         """Set the sponsor for a bill."""
         try:
@@ -174,12 +203,32 @@ class HouseSponsorsCosponsorsLoader:
         
         return cosponsors_added
     
-    def load_house_sponsors_and_cosponsors(self, congress: int = 119, limit: Optional[int] = None, offset: int = 0):
+    def count_bills_to_process(self, congress: int = 119, skip_processed: bool = False) -> int:
+        """Count how many bills still need to be processed."""
+        with get_db_session() as session:
+            query = session.query(Bill).filter(
+                Bill.congress == congress,
+                Bill.chamber == 'house'
+            )
+            
+            if skip_processed:
+                query = query.filter(Bill.sponsor_bioguide.is_(None))
+            
+            return query.count()
+    
+    def load_house_sponsors_and_cosponsors(self, congress: int = 119, limit: Optional[int] = None, offset: int = 0, skip_processed: bool = False):
         """Load sponsors and co-sponsors for House bills using Congress.gov API."""
         logger.info(f"Loading sponsors and co-sponsors for House bills in Congress {congress}")
         logger.info(f"Using Congress.gov API with real API key")
+        
+        # Count total bills that need processing
+        total_bills_to_process = self.count_bills_to_process(congress, skip_processed)
+        logger.info(f"Total bills that need processing: {total_bills_to_process}")
+        
         if offset > 0:
             logger.info(f"Starting from offset {offset}")
+        if skip_processed:
+            logger.info(f"Skipping bills that already have sponsors set")
         
         with get_db_session() as session:
             # Get House bills for the specified Congress
@@ -187,6 +236,12 @@ class HouseSponsorsCosponsorsLoader:
                 Bill.congress == congress,
                 Bill.chamber == 'house'
             )
+            
+            # Skip processed bills if requested
+            if skip_processed:
+                # Only skip bills that have sponsors set
+                # (We'll always check for co-sponsor updates)
+                query = query.filter(Bill.sponsor_bioguide.is_(None))
             
             # Apply offset and limit
             if offset > 0:
@@ -231,23 +286,29 @@ class HouseSponsorsCosponsorsLoader:
                             if self.set_bill_sponsor(bill_id, sponsor_bioguide):
                                 sponsors_set += 1
                 
-                # Process co-sponsors
-                if 'cosponsors' in bill_data['bill']:
-                    cosponsors_data = bill_data['bill']['cosponsors']
-                    if isinstance(cosponsors_data, list):
-                        for cosponsor in cosponsors_data:
-                            cosponsor_bioguide = cosponsor.get('bioguideId')
-                            if cosponsor_bioguide:
-                                # Try to parse date
-                                cosponsor_date = None
-                                if 'date' in cosponsor:
-                                    try:
-                                        cosponsor_date = datetime.strptime(cosponsor['date'], '%Y-%m-%d').date()
-                                    except:
-                                        pass
-                                
-                                if self.add_cosponsor(bill_id, cosponsor_bioguide, cosponsor_date):
-                                    cosponsors_added += 1
+                # Process co-sponsors from separate endpoint
+                logger.info(f"Fetching co-sponsors for {bill_id}...")
+                cosponsors_data = self.fetch_cosponsors_from_congressgov(bill_id)
+                
+                if cosponsors_data == "RATE_LIMIT":
+                    logger.warning(f"Rate limit hit while fetching co-sponsors for {bill_id}")
+                elif cosponsors_data and isinstance(cosponsors_data, list):
+                    logger.info(f"Found {len(cosponsors_data)} co-sponsors for {bill_id}")
+                    for cosponsor in cosponsors_data:
+                        cosponsor_bioguide = cosponsor.get('bioguideId')
+                        if cosponsor_bioguide:
+                            # Try to parse date
+                            cosponsor_date = None
+                            if 'date' in cosponsor:
+                                try:
+                                    cosponsor_date = datetime.strptime(cosponsor['date'], '%Y-%m-%d').date()
+                                except:
+                                    pass
+                            
+                            if self.add_cosponsor(bill_id, cosponsor_bioguide, cosponsor_date):
+                                cosponsors_added += 1
+                else:
+                    logger.info(f"No co-sponsors found for {bill_id}")
             
             # Rate limiting - wait 2 seconds between requests (conservative for daily limits)
             time.sleep(2)
@@ -349,6 +410,7 @@ def main():
     parser.add_argument('--congress', type=int, default=119, help='Congress number (default: 119)')
     parser.add_argument('--limit', type=int, help='Limit number of bills to process')
     parser.add_argument('--offset', type=int, default=0, help='Offset to start from (for batch processing)')
+    parser.add_argument('--skip-processed', action='store_true', help='Skip bills that already have sponsors set')
     parser.add_argument('--sample', action='store_true', help='Generate sample data instead of using APIs')
     parser.add_argument('--api-key', help='Congress.gov API key')
     
@@ -363,7 +425,7 @@ def main():
     if args.sample:
         loader.generate_sample_cosponsors(args.congress, args.limit or 50, args.offset)
     else:
-        loader.load_house_sponsors_and_cosponsors(args.congress, args.limit, args.offset)
+        loader.load_house_sponsors_and_cosponsors(args.congress, args.limit, args.offset, args.skip_processed)
 
 if __name__ == "__main__":
     main()
