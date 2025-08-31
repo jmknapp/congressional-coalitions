@@ -267,11 +267,20 @@ def get_cosponsorship_network():
                 Member.district.isnot(None)  # House members only
             ).all()
             
+            # Count bills sponsored by each member
+            member_bill_counts = {}
+            for member in members:
+                bill_count = session.query(Bill).filter(
+                    Bill.sponsor_bioguide == member.member_id_bioguide,
+                    Bill.chamber == 'house'
+                ).count()
+                member_bill_counts[member.member_id_bioguide] = bill_count
+            
             # Create nodes (members)
             nodes = []
             for member in members:
                 # Determine color based on party
-                color = '#0066cc' if member.party == 'D' else '#cc0000' if member.party == 'R' else '#666666'
+                color = '#1f77b4' if member.party == 'D' else '#d62728' if member.party == 'R' else '#ff7f0e'
                 
                 nodes.append({
                     'id': member.member_id_bioguide,
@@ -280,59 +289,31 @@ def get_cosponsorship_network():
                     'state': member.state,
                     'district': member.district,
                     'color': color,
-                    'title': f"{member.first} {member.last} ({member.party}-{member.state}-{member.district})"
+                    'bills_sponsored': member_bill_counts[member.member_id_bioguide]
                 })
             
-            # Get all co-sponsorship relationships
+            # Get all co-sponsorship relationships with bill details
             cosponsorships = session.query(Cosponsor, Bill).join(
                 Bill, Cosponsor.bill_id == Bill.bill_id
             ).filter(
                 Bill.chamber == 'house'
             ).all()
             
-            # Group by sponsor -> cosponsor relationships
-            edges = {}
+            # Create links with detailed information
+            links = []
             for cosponsor, bill in cosponsorships:
-                # Get the sponsor of this bill
-                sponsor = session.query(Member).filter(
-                    Member.member_id_bioguide == bill.sponsor_bioguide
-                ).first()
-                
-                if sponsor and cosponsor.member_id_bioguide != bill.sponsor_bioguide:
-                    # Create edge key: sponsor -> cosponsor
-                    edge_key = f"{bill.sponsor_bioguide}->{cosponsor.member_id_bioguide}"
-                    
-                    if edge_key not in edges:
-                        edges[edge_key] = {
-                            'from': bill.sponsor_bioguide,
-                            'to': cosponsor.member_id_bioguide,
-                            'bills': []
-                        }
-                    
-                    edges[edge_key]['bills'].append({
+                if cosponsor.member_id_bioguide != bill.sponsor_bioguide:
+                    links.append({
+                        'source': bill.sponsor_bioguide,
+                        'target': cosponsor.member_id_bioguide,
                         'bill_id': bill.bill_id,
-                        'title': bill.title or f"{bill.type.upper()} {bill.number}"
+                        'bill_title': bill.title or f"{bill.type.upper()} {bill.number}",
+                        'cosponsor_date': cosponsor.date.isoformat() if cosponsor.date else None
                     })
-            
-            # Convert edges to list format
-            edges_list = []
-            for edge_key, edge_data in edges.items():
-                # Create tooltip with bill details
-                bill_tooltip = "<br>".join([
-                    f"{bill['bill_id']}: {bill['title']}" 
-                    for bill in edge_data['bills']
-                ])
-                
-                edges_list.append({
-                    'from': edge_data['from'],
-                    'to': edge_data['to'],
-                    'title': bill_tooltip,
-                    'value': len(edge_data['bills'])  # Edge weight based on number of bills
-                })
             
             return jsonify({
                 'nodes': nodes,
-                'edges': edges_list
+                'links': links
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -342,10 +323,12 @@ def get_simplified_cosponsorship_network():
     """Get simplified co-sponsorship network data with filtering options."""
     try:
         # Get query parameters for filtering
-        min_relationships = int(request.args.get('min_relationships', 3))  # Minimum co-sponsorships to show edge
-        min_bills_sponsored = int(request.args.get('min_bills_sponsored', 1))  # Minimum bills sponsored to include member
-        max_edges_per_node = int(request.args.get('max_edges_per_node', 20))  # Max edges per node to prevent cluttering
-        party_filter = request.args.get('party', None)  # Filter by party (D, R, or None for all)
+        min_relationships = int(request.args.get('min_relationships', 3))
+        min_bills_sponsored = int(request.args.get('min_bills_sponsored', 1))
+        max_edges_per_node = int(request.args.get('max_edges_per_node', 20))
+        party_filter = request.args.get('party', None)
+        
+        print(f"DEBUG: Received params - min_relationships={min_relationships}, min_bills_sponsored={min_bills_sponsored}, max_edges_per_node={max_edges_per_node}, party_filter={party_filter}")
         
         with get_db_session() as session:
             # Get House members with filtering
@@ -374,7 +357,7 @@ def get_simplified_cosponsorship_network():
             nodes = []
             for member in active_members:
                 # Determine color based on party
-                color = '#0066cc' if member.party == 'D' else '#cc0000' if member.party == 'R' else '#666666'
+                color = '#1f77b4' if member.party == 'D' else '#d62728' if member.party == 'R' else '#ff7f0e'
                 
                 nodes.append({
                     'id': member.member_id_bioguide,
@@ -383,7 +366,6 @@ def get_simplified_cosponsorship_network():
                     'state': member.state,
                     'district': member.district,
                     'color': color,
-                    'title': f"{member.first} {member.last} ({member.party}-{member.state}-{member.district}) - {member_bill_counts[member.member_id_bioguide]} bills sponsored",
                     'bills_sponsored': member_bill_counts[member.member_id_bioguide]
                 })
             
@@ -406,19 +388,22 @@ def get_simplified_cosponsorship_network():
                     
                     if edge_key not in edges:
                         edges[edge_key] = {
-                            'from': bill.sponsor_bioguide,
-                            'to': cosponsor.member_id_bioguide,
+                            'source': bill.sponsor_bioguide,
+                            'target': cosponsor.member_id_bioguide,
                             'bills': []
                         }
                     
                     edges[edge_key]['bills'].append({
                         'bill_id': bill.bill_id,
-                        'title': bill.title or f"{bill.type.upper()} {bill.number}"
+                        'bill_title': bill.title or f"{bill.type.upper()} {bill.number}",
+                        'cosponsor_date': cosponsor.date.isoformat() if cosponsor.date else None
                     })
             
             # Filter edges by minimum relationships and limit per node
-            edges_list = []
+            links = []
             node_edge_counts = {}
+            
+            print(f"DEBUG: Total edges before filtering: {len(edges)}")
             
             # Sort edges by weight (number of bills) to prioritize stronger relationships
             sorted_edges = sorted(edges.items(), key=lambda x: len(x[1]['bills']), reverse=True)
@@ -431,47 +416,32 @@ def get_simplified_cosponsorship_network():
                     continue
                 
                 # Check edge count limits for both nodes
-                from_node = edge_data['from']
-                to_node = edge_data['to']
+                source_node = edge_data['source']
+                target_node = edge_data['target']
                 
-                if (node_edge_counts.get(from_node, 0) >= max_edges_per_node or 
-                    node_edge_counts.get(to_node, 0) >= max_edges_per_node):
+                if (node_edge_counts.get(source_node, 0) >= max_edges_per_node or 
+                    node_edge_counts.get(target_node, 0) >= max_edges_per_node):
                     continue
                 
-                # Create tooltip with bill details (limit to first 5 for readability)
-                bill_tooltip = "<br>".join([
-                    f"{bill['bill_id']}: {bill['title']}" 
-                    for bill in edge_data['bills'][:5]
-                ])
-                if len(edge_data['bills']) > 5:
-                    bill_tooltip += f"<br>... and {len(edge_data['bills']) - 5} more"
-                
-                edges_list.append({
-                    'from': from_node,
-                    'to': to_node,
-                    'title': bill_tooltip,
-                    'value': relationship_count
+                # Add the edge with the first bill's details (for tooltip)
+                first_bill = edge_data['bills'][0]
+                links.append({
+                    'source': source_node,
+                    'target': target_node,
+                    'bill_id': first_bill['bill_id'],
+                    'bill_title': first_bill['bill_title'],
+                    'cosponsor_date': first_bill['cosponsor_date']
                 })
                 
                 # Update edge counts
-                node_edge_counts[from_node] = node_edge_counts.get(from_node, 0) + 1
-                node_edge_counts[to_node] = node_edge_counts.get(to_node, 0) + 1
+                node_edge_counts[source_node] = node_edge_counts.get(source_node, 0) + 1
+                node_edge_counts[target_node] = node_edge_counts.get(target_node, 0) + 1
+            
+            print(f"DEBUG: Final results - nodes: {len(nodes)}, links: {len(links)}")
             
             return jsonify({
                 'nodes': nodes,
-                'edges': edges_list,
-                'filters': {
-                    'min_relationships': min_relationships,
-                    'min_bills_sponsored': min_bills_sponsored,
-                    'max_edges_per_node': max_edges_per_node,
-                    'party_filter': party_filter
-                },
-                'stats': {
-                    'total_members': len(members),
-                    'active_members': len(nodes),
-                    'total_edges': len(edges),
-                    'filtered_edges': len(edges_list)
-                }
+                'links': links
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

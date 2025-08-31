@@ -55,7 +55,15 @@
             border: 1px solid #666;
             border-radius: 3px;
         }
-        .controls button {
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+        .button-group {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #555;
+        }
+        .button-group button {
             background: #444;
             color: white;
             border: 1px solid #666;
@@ -65,25 +73,30 @@
             cursor: pointer;
             font-size: 11px;
         }
-        .controls button:hover {
+        .button-group button:hover {
             background: #666;
+        }
+        .filter-summary {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #555;
+            font-size: 11px;
         }
         .stats {
             position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.8);
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
             padding: 10px;
             border-radius: 5px;
             z-index: 1000;
             font-size: 12px;
-            min-width: 150px;
         }
         .legend {
             position: absolute;
             bottom: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.8);
+            right: 10px;
+            background: rgba(0,0,0,0.7);
             padding: 10px;
             border-radius: 5px;
             z-index: 1000;
@@ -101,213 +114,461 @@
             margin-right: 8px;
             border: 1px solid #333;
         }
-        .filter-info {
+        /* Custom tooltip styles */
+        .tooltip {
             position: absolute;
-            bottom: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.8);
-            padding: 10px;
-            border-radius: 5px;
-            z-index: 1000;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 10000;
+            max-width: 300px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            border: 1px solid #444;
+        }
+        .tooltip a {
+            color: #4CAF50;
+            text-decoration: underline;
+        }
+        .tooltip a:hover {
+            color: #66BB6A;
+        }
+        /* Loading overlay styles */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+        }
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        .loading-text {
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tooltip h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #fff;
+            border-bottom: 1px solid #555;
+            padding-bottom: 4px;
+        }
+        .tooltip .member-info {
+            margin-bottom: 8px;
+        }
+        .tooltip .member-info div {
+            margin: 2px 0;
+        }
+        .tooltip .relationship-info {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #555;
+        }
+        .tooltip .bill-list {
+            max-height: 100px;
+            overflow-y: auto;
+            margin-top: 4px;
+        }
+        .tooltip .bill-item {
+            padding: 2px 0;
             font-size: 11px;
-            max-width: 200px;
+            color: #ccc;
+        }
+        .tooltip .bill-title {
+            font-weight: bold;
+            color: #fff;
+        }
+        .tooltip .bill-date {
+            color: #aaa;
+            font-size: 10px;
+        }
+        .tooltip .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+        }
+        .tooltip .highlight {
+            color: #4CAF50;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div class="controls">
-        <h3>Network Filters</h3>
+        <h3>Network Controls</h3>
         
         <div class="control-group">
-            <label for="min-relationships">Min Co-sponsorships:</label>
-            <input type="number" id="min-relationships" value="3" min="1" max="20">
+            <label>Min Co-sponsorships: <span id="min-cosponsorships-value">3</span>
+                <input type="range" id="min-cosponsorships" min="1" max="50" value="3" oninput="updateFilters()">
+            </label>
         </div>
         
         <div class="control-group">
-            <label for="min-bills-sponsored">Min Bills Sponsored:</label>
-            <input type="number" id="min-bills-sponsored" value="1" min="0" max="50">
+            <label>Min Bills Sponsored: <span id="min-sponsored-value">1</span>
+                <input type="range" id="min-sponsored" min="0" max="20" value="1" oninput="updateFilters()">
+            </label>
         </div>
         
         <div class="control-group">
-            <label for="max-edges-per-node">Max Edges per Node:</label>
-            <input type="number" id="max-edges-per-node" value="20" min="5" max="50">
+            <label>Max Edges per Node: <span id="max-edges-value">20</span>
+                <input type="range" id="max-edges" min="1" max="50" value="20" oninput="updateFilters()">
+            </label>
         </div>
         
         <div class="control-group">
-            <label for="party-filter">Party Filter:</label>
-            <select id="party-filter">
-                <option value="">All Parties</option>
-                <option value="D">Democrats Only</option>
-                <option value="R">Republicans Only</option>
-            </select>
+            <label>Party Filter:
+                <select id="party-filter" onchange="updateFilters()">
+                    <option value="">All Parties</option>
+                    <option value="D">Democrats Only</option>
+                    <option value="R">Republicans Only</option>
+                </select>
+            </label>
         </div>
         
-        <button onclick="applyFilters()">Apply Filters</button>
-        <button onclick="resetFilters()">Reset</button>
-        <button onclick="stabilize()">Stabilize</button>
-        <button onclick="fitView()">Fit View</button>
-        <button onclick="togglePhysics()">Toggle Physics</button>
+        <div class="filter-summary" id="filter-summary">
+            Showing all members
+        </div>
+        
+        <div class="button-group">
+            <button onclick="loadData()">RESET</button>
+            <button onclick="stabilize()">STABILIZE</button>
+            <button onclick="fitView()">FIT VIEW</button>
+            <button onclick="togglePhysics()">TOGGLE PHYSICS</button>
+            <button onclick="clearSelection()">CLEAR</button>
+        </div>
     </div>
     
     <div class="stats">
-        <div><strong>Network Stats:</strong></div>
         <div>Nodes: <span id="node-count">0</span></div>
         <div>Edges: <span id="edge-count">0</span></div>
         <div>Democrats: <span id="dem-count">0</span></div>
         <div>Republicans: <span id="rep-count">0</span></div>
-        <div>Filtered from: <span id="total-edges">0</span></div>
     </div>
     
     <div class="legend">
         <div class="legend-item">
-            <div class="legend-color" style="background: #0066cc;"></div>
+            <div class="legend-color" style="background: #1f77b4;"></div>
             <span>Democrats</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #cc0000;"></div>
+            <div class="legend-color" style="background: #d62728;"></div>
             <span>Republicans</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #666666;"></div>
-            <span>Other</span>
+            <div class="legend-color" style="background: #ff7f0e;"></div>
+            <span>Independents</span>
         </div>
-        <div class="legend-item">
-            <div class="legend-color" style="background: #ff6666;"></div>
-            <span>Selected</span>
-        </div>
-    </div>
-    
-    <div class="filter-info">
-        <div><strong>Current Filters:</strong></div>
-        <div id="filter-summary">Loading...</div>
     </div>
 
-    <svg></svg>
+    <div id="tooltip" class="tooltip" style="display: none;"></div>
+    
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Updating network...</div>
+    </div>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        let selectedMember = null;
         let fullData = null;
         let currentFocus = null;
-        let physicsEnabled = true;
-        let currentFilters = {};
+        let selectedMember = null;
         let simulation = null;
-        
-        const svg = d3.select("svg");
+        let physicsEnabled = true;
+        let tooltip = null;
+        let currentFilters = {
+            minCosponsorships: 3,
+            minSponsored: 1,
+            maxEdges: 20,
+            partyFilter: ''
+        };
+        let updateTimeout = null;
+        let tooltipTimeout = null;
+
         const width = window.innerWidth;
         const height = window.innerHeight;
-        const zoom = d3.zoom().scaleExtent([0.1, 10]).on("zoom", zoomed);
+
+        const svg = d3.select("body").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
         const container = svg.append("g");
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on("zoom", (event) => {
+                container.attr("transform", event.transform);
+            });
+
         svg.call(zoom);
 
-        function zoomed({transform}) {
-            container.attr("transform", transform);
+        function dragstart(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
         }
 
-        function getFilterParams() {
-            return {
-                min_relationships: parseInt(document.getElementById('min-relationships').value),
-                min_bills_sponsored: parseInt(document.getElementById('min-bills-sponsored').value),
-                max_edges_per_node: parseInt(document.getElementById('max-edges-per-node').value),
-                party: document.getElementById('party-filter').value
-            };
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
         }
 
-        function loadData() {
-            // Clear selected member
-            selectedMember = null;
-            currentFocus = null;
+        function dragend(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
 
-            const params = getFilterParams();
-            const queryString = new URLSearchParams(params).toString();
+        function createTooltipContent(node, links, currentNodes) {
+            const connectedLinks = links.filter(l => 
+                l.source === node.id || l.target === node.id
+            );
             
-            fetch(`/api/network/cosponsorship/simplified?${queryString}`)
-                .then(res => res.json())
-                .then(data => {
-                    fullData = data;
-                    currentFocus = null;
-                    currentFilters = data.filters;
-                    render(data, null);
-                    updateFilterSummary(data);
-                })
-                .catch(error => {
-                    console.error('Error loading network data:', error);
-                });
-        }
+            const coSponsoredBills = connectedLinks.map(link => {
+                const otherMemberId = link.source === node.id ? link.target : link.source;
+                // Find the other member's info from the current nodes data
+                const otherMember = currentNodes.find(n => n.id === otherMemberId);
+                return {
+                    bill: link.bill_title || link.bill_id || 'Unknown Bill',
+                    date: link.cosponsor_date || 'Unknown Date',
+                    member: otherMember ? otherMember.label : 'Unknown Member',
+                    memberParty: otherMember ? otherMember.party : 'Unknown'
+                };
+            });
 
-        function updateFilterSummary(data) {
-            const summary = document.getElementById('filter-summary');
-            const stats = data.stats;
-            summary.innerHTML = `
-                Min relationships: ${data.filters.min_relationships}<br>
-                Min bills sponsored: ${data.filters.min_bills_sponsored}<br>
-                Max edges per node: ${data.filters.max_edges_per_node}<br>
-                Party filter: ${data.filters.party_filter || 'All'}<br>
-                <br>
-                <strong>Results:</strong><br>
-                ${stats.active_members}/${stats.total_members} members<br>
-                ${stats.filtered_edges}/${stats.total_edges} edges shown
+            const sponsoredCount = node.bills_sponsored || 0;
+            const coSponsoredCount = connectedLinks.length;
+
+            return `
+                <h3>${node.label}</h3>
+                <div class="member-info">
+                    <div><strong>Party:</strong> ${node.party}</div>
+                    <div><strong>State:</strong> ${node.state}</div>
+                    <div><strong>District:</strong> ${node.district}</div>
+                </div>
+                <div class="stats-row">
+                    <span>Bills Sponsored:</span>
+                    <span class="highlight">${sponsoredCount}</span>
+                </div>
+                <div class="stats-row">
+                    <span>Co-sponsorships:</span>
+                    <span class="highlight">${coSponsoredCount}</span>
+                </div>
+                ${coSponsoredBills.length > 0 ? `
+                    <div class="relationship-info">
+                        <div><strong>Recent Co-sponsorships:</strong></div>
+                        <div class="bill-list">
+                            ${coSponsoredBills.slice(0, 5).map(bill => `
+                                <div class="bill-item">
+                                    <div class="bill-title">${bill.bill}</div>
+                                    <div>with ${bill.member} (${bill.memberParty})</div>
+                                    <div class="bill-date">${bill.date}</div>
+                                </div>
+                            `).join('')}
+                            ${coSponsoredBills.length > 5 ? `<div class="bill-item">... and ${coSponsoredBills.length - 5} more</div>` : ''}
+                        </div>
+                    </div>
+                ` : ''}
             `;
         }
 
-        function applyFilters() {
-            loadData();
-        }
-
-        function resetFilters() {
-            document.getElementById('min-relationships').value = 3;
-            document.getElementById('min-bills-sponsored').value = 1;
-            document.getElementById('max-edges-per-node').value = 20;
-            document.getElementById('party-filter').value = '';
-            loadData();
-        }
-
-        function render({nodes, edges}, clickedId) {
-            container.selectAll("*").remove();
+        function showTooltip(event, node, links, currentNodes) {
+            if (!tooltip) {
+                tooltip = d3.select("#tooltip");
+            }
             
-            // Stop any existing simulation
+            const content = createTooltipContent(node, links, currentNodes);
+            tooltip.html(content);
+            
+            tooltip.style("display", "block")
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+
+        function showEdgeTooltip(event, link, currentNodes) {
+            if (!tooltip) {
+                tooltip = d3.select("#tooltip");
+            }
+            
+            // Clear any existing timeout
+            if (tooltipTimeout) {
+                clearTimeout(tooltipTimeout);
+            }
+            
+            // Find the source and target members from the current nodes data
+            const sourceMember = currentNodes.find(n => n.id === link.source.id);
+            const targetMember = currentNodes.find(n => n.id === link.target.id);
+            
+            const content = `
+                <h3>Co-sponsorship Relationship</h3>
+                <div class="member-info">
+                    <div><strong>Sponsor:</strong> ${sourceMember ? sourceMember.label : 'Unknown'} (${sourceMember ? sourceMember.party : 'Unknown'})</div>
+                    <div><strong>Co-sponsor:</strong> ${targetMember ? targetMember.label : 'Unknown'} (${targetMember ? targetMember.party : 'Unknown'})</div>
+                </div>
+                <div class="relationship-info">
+                    <div><strong>Bill:</strong> <a href="https://www.congress.gov/bill/119th-congress/house-bill/${link.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${link.bill_title || link.bill_id || 'Unknown Bill'}</a></div>
+                    <div><strong>Co-sponsor Date:</strong> ${link.cosponsor_date || 'Unknown Date'}</div>
+                </div>
+            `;
+            
+            tooltip.html(content);
+            
+            tooltip.style("display", "block")
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px")
+                .style("pointer-events", "auto") // Make tooltip interactive
+                .on("mouseenter", () => {
+                    // Clear timeout when hovering over tooltip
+                    if (tooltipTimeout) {
+                        clearTimeout(tooltipTimeout);
+                    }
+                })
+                .on("mouseleave", () => {
+                    // Hide tooltip when leaving tooltip
+                    hideTooltip();
+                });
+        }
+
+        function hideTooltip() {
+            if (tooltip) {
+                tooltip.style("display", "none");
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loading-overlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+
+        function updateFilterValues() {
+            document.getElementById('min-cosponsorships-value').textContent = currentFilters.minCosponsorships;
+            document.getElementById('min-sponsored-value').textContent = currentFilters.minSponsored;
+            document.getElementById('max-edges-value').textContent = currentFilters.maxEdges;
+        }
+
+        function updateFilters() {
+            currentFilters.minCosponsorships = parseInt(document.getElementById('min-cosponsorships').value);
+            currentFilters.minSponsored = parseInt(document.getElementById('min-sponsored').value);
+            currentFilters.maxEdges = parseInt(document.getElementById('max-edges').value);
+            currentFilters.partyFilter = document.getElementById('party-filter').value;
+            
+            updateFilterValues();
+            
+            // Debounce the API call to avoid too many requests
+            if (updateTimeout) {
+                clearTimeout(updateTimeout);
+            }
+            updateTimeout = setTimeout(() => {
+                loadData();
+            }, 500); // Wait 500ms after last slider change
+        }
+
+
+
+        function loadData() {
+            showLoading();
+            
+            const params = new URLSearchParams({
+                min_relationships: currentFilters.minCosponsorships,
+                min_bills_sponsored: currentFilters.minSponsored,
+                max_edges_per_node: currentFilters.maxEdges,
+                party: currentFilters.partyFilter || ''
+            });
+            
+            console.log('Sending filter params:', {
+                min_relationships: currentFilters.minCosponsorships,
+                min_bills_sponsored: currentFilters.minSponsored,
+                max_edges_per_node: currentFilters.maxEdges,
+                party: currentFilters.partyFilter
+            });
+            
+            fetch(`/api/network/cosponsorship/simplified?${params}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Received data:', {
+                        nodes: data.nodes.length,
+                        links: data.links.length
+                    });
+                    fullData = data;
+                    render(data, currentFocus ? currentFocus.id : null);
+                    
+                    // Update filter summary
+                    const summary = `Showing ${data.nodes.length} members, ${data.links.length} relationships`;
+                    document.getElementById('filter-summary').textContent = summary;
+                    
+                    // Add visual feedback for filtering
+                    if (data.links.length < 100) {
+                        document.getElementById('filter-summary').style.color = '#4CAF50';
+                    } else if (data.links.length < 500) {
+                        document.getElementById('filter-summary').style.color = '#FF9800';
+                    } else {
+                        document.getElementById('filter-summary').style.color = '#fff';
+                    }
+                    
+                    hideLoading();
+                })
+                .catch(error => {
+                    console.error('Error loading network data:', error);
+                    hideLoading();
+                });
+        }
+
+        function render(data, clickedId) {
             if (simulation) {
                 simulation.stop();
             }
+
+            // Clear the container before rendering new data
+            container.selectAll("*").remove();
+
+            const { nodes, links } = data;
             
-            // Create a set of valid node IDs for quick lookup
-            const validNodeIds = new Set(nodes.map(n => n.id));
+            // Convert links to D3 format if they're not already
+            const d3Links = links.map(link => ({
+                source: typeof link.source === 'string' ? link.source : link.source.id,
+                target: typeof link.target === 'string' ? link.target : link.target.id,
+                bill_id: link.bill_id,
+                bill_title: link.bill_title,
+                cosponsor_date: link.cosponsor_date
+            }));
             
-            // Convert edges to D3 format, filtering out edges with invalid nodes
-            const invalidEdges = edges.filter(edge => !validNodeIds.has(edge.from) || !validNodeIds.has(edge.to));
-            if (invalidEdges.length > 0) {
-                console.warn(`Filtered out ${invalidEdges.length} edges with invalid nodes:`, 
-                    invalidEdges.map(e => ({from: e.from, to: e.to})));
-            }
-            
-            const links = edges
-                .filter(edge => validNodeIds.has(edge.from) && validNodeIds.has(edge.to))
-                .map(edge => ({
-                    source: edge.from,
-                    target: edge.to,
-                    weight: edge.value || 1,
-                    title: edge.title
-                }));
-        
-            simulation = d3.forceSimulation(nodes)
-                .force("link", d3.forceLink(links).id(d => d.id).distance(80))
-                .force("charge", d3.forceManyBody().strength(-300))
-                .force("x", d3.forceX(width / 2).strength(0.05))
-                .force("y", d3.forceY(height / 2).strength(0.05))
-                .force("collide", d3.forceCollide(15))
-                .force("center", d3.forceCenter(width / 2, height / 2));
-            
-            if (!physicsEnabled) {
-                simulation.stop();
-            }
-        
+            // Filter out invalid edges
+            const validLinks = d3Links.filter(link => {
+                const sourceExists = nodes.some(n => n.id === link.source);
+                const targetExists = nodes.some(n => n.id === link.target);
+                return sourceExists && targetExists;
+            });
+
             const connectedIds = new Set();
             if (clickedId) {
                 connectedIds.add(clickedId);
-                links.forEach(l => {
-                    if (l.source.id === clickedId || l.target.id === clickedId) {
-                        connectedIds.add(l.source.id);
-                        connectedIds.add(l.target.id);
+                validLinks.forEach(l => {
+                    if (l.source === clickedId || l.target === clickedId) {
+                        connectedIds.add(l.source);
+                        connectedIds.add(l.target);
                     }
                 });
             }
@@ -316,14 +577,26 @@
             const nodeGroup = container.append("g").attr("stroke-width", 1.5);
         
             const link = linkGroup.selectAll("line")
-                .data(links)
+                .data(validLinks)
                 .join("line")
-                .attr("stroke-width", 1) // Fixed small width
+                .attr("stroke-width", 1)
                 .attr("stroke", d =>
-                    clickedId && (d.source.id === clickedId || d.target.id === clickedId)
+                    clickedId && (d.source === clickedId || d.target === clickedId)
                         ? "#ff6666"
                         : "#666"
-                );
+                )
+                .on("mouseover", (event, d) => {
+                    showEdgeTooltip(event, d, nodes);
+                })
+                .on("mouseout", () => {
+                    // Add delay before hiding tooltip to allow clicking
+                    if (tooltipTimeout) {
+                        clearTimeout(tooltipTimeout);
+                    }
+                    tooltipTimeout = setTimeout(() => {
+                        hideTooltip();
+                    }, 1000); // Increased to 1 second
+                });
         
             const node = nodeGroup.selectAll("g")
                 .data(nodes)
@@ -335,18 +608,15 @@
                     .on("end", dragend));
             
             node.append("circle")
-                .attr("r", 8) // Fixed small size
+                .attr("r", 8)
                 .attr("fill", d => {
                     if (!clickedId) return d.color;
                     if (d.id === clickedId) return "#ff6666";
                     return connectedIds.has(d.id) ? d.color : "#333";
                 });
             
-            node.append("title")
-                .text(d => d.title);
-            
             node.append("text")
-                .text(d => d.label.split(' ').pop()) // Show last name only
+                .text(d => d.label.split(' ').pop())
                 .attr("x", 12)
                 .attr("y", 3)
                 .attr("fill", "white")
@@ -354,6 +624,24 @@
                 .attr("stroke-width", 0.3)
                 .style("font", "bold 12px Arial")
                 .style("font-weight", "900");
+            
+            // Add tooltip events
+            node.on("mouseover", (event, d) => {
+                showTooltip(event, d, validLinks, nodes);
+            })
+            .on("mouseout", () => {
+                hideTooltip();
+            });
+            
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(validLinks).id(d => d.id).distance(50))
+                .force("charge", d3.forceManyBody().strength(-100))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(20));
+            
+            if (!physicsEnabled) {
+                simulation.alpha(0).stop();
+            }
             
             simulation.on("tick", () => {
                 link
@@ -369,7 +657,7 @@
                 if (currentFocus && currentFocus.id === clickedNode.id) {
                     currentFocus = null;
                     selectedMember = null;
-                    render(fullData, null);
+                    applyFilters();
                     return;
                 }
             
@@ -377,17 +665,17 @@
                 selectedMember = clickedNode.label;
             
                 const connected = new Set([clickedNode.id]);
-                const connectedLinks = links.filter(
-                    l => l.source.id === clickedNode.id || l.target.id === clickedNode.id
+                const connectedLinks = validLinks.filter(
+                    l => l.source === clickedNode.id || l.target === clickedNode.id
                 );
                 connectedLinks.forEach(l => {
-                    connected.add(l.source.id);
-                    connected.add(l.target.id);
+                    connected.add(l.source);
+                    connected.add(l.target);
                 });
             
                 const newNodes = nodes.filter(n => connected.has(n.id));
-                const newLinks = links.filter(
-                    l => connected.has(l.source.id) && connected.has(l.target.id)
+                const newLinks = validLinks.filter(
+                    l => connected.has(l.source) && connected.has(l.target)
                 );
             
                 render({nodes: newNodes, links: newLinks}, clickedNode.id);
@@ -415,13 +703,12 @@
                 }, 300);
             });
             
-            updateStats(nodes, links, fullData.stats);
+            updateStats(nodes, validLinks);
         }
         
-        function updateStats(nodes, links, stats) {
+        function updateStats(nodes, links) {
             document.getElementById('node-count').textContent = nodes.length;
             document.getElementById('edge-count').textContent = links.length;
-            document.getElementById('total-edges').textContent = stats.total_edges;
             
             const demCount = nodes.filter(n => n.party === 'D').length;
             const repCount = nodes.filter(n => n.party === 'R').length;
@@ -432,51 +719,58 @@
         
         function stabilize() {
             if (fullData) {
-                render(fullData, currentFocus ? currentFocus.id : null);
+                applyFilters();
             }
         }
         
         function fitView() {
             if (fullData) {
+                const nodes = fullData.nodes;
+                const positions = nodes.map(d => [d.x, d.y]);
+                const xExtent = d3.extent(positions, p => p[0]);
+                const yExtent = d3.extent(positions, p => p[1]);
+        
+                const paddingX = 60;
+                const paddingY = 100;
+                const boxWidth = xExtent[1] - xExtent[0] + paddingX * 2;
+                const boxHeight = yExtent[1] - yExtent[0] + paddingY * 2;
+        
+                const scale = Math.min(width / boxWidth, height / boxHeight, 2);
+                const xCenter = (xExtent[0] + xExtent[1]) / 2;
+                const yCenter = (yExtent[0] + yExtent[1]) / 2;
+        
                 const transform = d3.zoomIdentity
                     .translate(width / 2, height / 2)
-                    .scale(0.8);
+                    .scale(scale)
+                    .translate(-xCenter, -yCenter);
+        
                 svg.transition().duration(750).call(zoom.transform, transform);
             }
         }
         
         function togglePhysics() {
             physicsEnabled = !physicsEnabled;
-            if (fullData) {
-                render(fullData, currentFocus ? currentFocus.id : null);
+            if (simulation) {
+                if (physicsEnabled) {
+                    simulation.alpha(0.3).restart();
+                } else {
+                    simulation.alpha(0).stop();
+                }
             }
         }
         
-        function dragstart(event, d) {
-            if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
+        function clearSelection() {
+            currentFocus = null;
+            selectedMember = null;
+            if (fullData) {
+                applyFilters();
+            }
         }
         
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-        }
+        // Initialize filter values
+        updateFilterValues();
         
-        function dragend(event, d) {
-            if (!event.active && simulation) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-        }
-        
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            const newWidth = window.innerWidth;
-            const newHeight = window.innerHeight;
-            svg.attr('width', newWidth).attr('height', newHeight);
-        });
-        
-        // Load data when page loads
+        // Load data on page load
         loadData();
     </script>
 </body>
