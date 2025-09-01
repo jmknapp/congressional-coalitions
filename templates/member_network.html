@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Member Network - Congressional Coalition Tracker</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #2d2d2d;
+            padding: 15px 20px;
+            z-index: 1000;
+            border-bottom: 1px solid #444;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: #ffffff;
+        }
+
+        .header .member-info {
+            margin-top: 5px;
+            font-size: 0.9rem;
+            color: #cccccc;
+        }
+
+        .network-container {
+            position: fixed;
+            top: 80px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 300px;
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+        }
+
+        .tooltip h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            color: #4CAF50;
+        }
+
+        .tooltip .member-info {
+            margin-bottom: 8px;
+        }
+
+        .tooltip .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .tooltip .highlight {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .tooltip .relationship-info {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #444;
+        }
+
+        .tooltip .bill-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .tooltip .bill-item {
+            margin-bottom: 6px;
+            padding: 4px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .tooltip .bill-date {
+            font-size: 10px;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .loading-spinner {
+            border: 4px solid #333;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        .loading-text {
+            color: #ffffff;
+            font-size: 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .target-node {
+            stroke: #4CAF50;
+            stroke-width: 3;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Co-sponsorship Network: <span id="member-name">{{ bioguide_id }}</span></h1>
+        <div class="member-info" id="member-details">Loading...</div>
+    </div>
+
+    <div class="network-container" id="network-container"></div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading network data...</div>
+    </div>
+
+    <script>
+        const memberId = '{{ bioguide_id }}';
+        let tooltip = null;
+        let tooltipTimeout = null;
+        let simulation = null;
+        let validLinks = [];
+
+        const width = window.innerWidth;
+        const height = window.innerHeight - 80; // Account for header
+
+        const svg = d3.select("#network-container").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        const container = svg.append("g");
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 10])
+            .on("zoom", (event) => {
+                container.attr("transform", event.transform);
+            });
+
+        svg.call(zoom);
+
+        function dragstart(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragend(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        function createTooltipContent(node, links, currentNodes) {
+            const connectedLinks = links.filter(l => 
+                l.source === node.id || l.target === node.id
+            );
+            
+            const coSponsoredBills = connectedLinks.map(link => {
+                const otherMemberId = link.source === node.id ? link.target : link.source;
+                const otherMember = currentNodes.find(n => n.id === otherMemberId);
+                return {
+                    bill: link.bill_title || link.bill_id || 'Unknown Bill',
+                    date: link.cosponsor_date || 'Unknown Date',
+                    member: otherMember ? otherMember.label : 'Unknown Member',
+                    memberParty: otherMember ? otherMember.party : 'Unknown'
+                };
+            });
+
+            const sponsoredCount = node.bills_sponsored || 0;
+            const coSponsoredCount = connectedLinks.length;
+
+            return `
+                <h3>${node.label}${node.is_target ? ' (Target Member)' : ''}</h3>
+                <div class="member-info">
+                    <div><strong>Party:</strong> ${node.party}</div>
+                    <div><strong>State:</strong> ${node.state}</div>
+                    <div><strong>District:</strong> ${node.district}</div>
+                </div>
+                <div class="stats-row">
+                    <span>Bills Sponsored:</span>
+                    <span class="highlight">${sponsoredCount}</span>
+                </div>
+                <div class="stats-row">
+                    <span>Co-sponsorships:</span>
+                    <span class="highlight">${coSponsoredCount}</span>
+                </div>
+                ${coSponsoredBills.length > 0 ? `
+                    <div class="relationship-info">
+                        <div><strong>Recent Co-sponsorships:</strong></div>
+                        <div class="bill-list">
+                            ${coSponsoredBills.slice(0, 5).map(bill => `
+                                <div class="bill-item">
+                                    <div class="bill-title">${bill.bill}</div>
+                                    <div>with ${bill.member} (${bill.memberParty})</div>
+                                    <div class="bill-date">${bill.date}</div>
+                                </div>
+                            `).join('')}
+                            ${coSponsoredBills.length > 5 ? `<div class="bill-item">... and ${coSponsoredBills.length - 5} more</div>` : ''}
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function showTooltip(event, node, links, currentNodes) {
+            if (!tooltip) {
+                tooltip = d3.select("#tooltip");
+            }
+            
+            const content = createTooltipContent(node, links, currentNodes);
+            tooltip.html(content);
+            
+            tooltip.style("display", "block")
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px");
+        }
+
+        function showEdgeTooltip(event, link, currentNodes) {
+            if (!tooltip) {
+                tooltip = d3.select("#tooltip");
+            }
+            
+            if (tooltipTimeout) {
+                clearTimeout(tooltipTimeout);
+            }
+            
+            const sourceMember = currentNodes.find(n => n.id === link.source.id);
+            const targetMember = currentNodes.find(n => n.id === link.target.id);
+            
+            const reverseLink = validLinks.find(l => 
+                l !== link && 
+                l.source === link.target && 
+                l.target === link.source
+            );
+            const isBidirectional = !!reverseLink;
+            
+            const content = `
+                <h3>Co-sponsorship Relationship${isBidirectional ? ' (Bidirectional)' : ''}</h3>
+                <div class="member-info">
+                    <div><strong>Sponsor:</strong> ${sourceMember ? sourceMember.label : 'Unknown'} (${sourceMember ? sourceMember.party : 'Unknown'})</div>
+                    <div><strong>Co-sponsor:</strong> ${targetMember ? targetMember.label : 'Unknown'} (${targetMember ? targetMember.party : 'Unknown'})</div>
+                    ${isBidirectional ? `<div><em>Note: These members also have a reverse relationship</em></div>` : ''}
+                </div>
+                <div class="relationship-info">
+                    <div><strong>Bills (${link.all_bills ? link.all_bills.length : 1}):</strong></div>
+                    <div class="bill-list">
+                        ${link.all_bills ? link.all_bills.map(bill => `
+                            <div class="bill-item">
+                                <a href="https://www.congress.gov/bill/119th-congress/house-bill/${bill.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${bill.bill_title || bill.bill_id || 'Unknown Bill'}</a>
+                                <div class="bill-date">${bill.cosponsor_date || 'Unknown Date'}</div>
+                            </div>
+                        `).join('') : `
+                            <div class="bill-item">
+                                <a href="https://www.congress.gov/bill/119th-congress/house-bill/${link.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${link.bill_title || link.bill_id || 'Unknown Bill'}</a>
+                                <div class="bill-date">${link.cosponsor_date || 'Unknown Date'}</div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            
+            tooltip.html(content);
+            
+            tooltip.style("display", "block")
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px")
+                .style("pointer-events", "auto")
+                .on("mouseenter", () => {
+                    if (tooltipTimeout) {
+                        clearTimeout(tooltipTimeout);
+                    }
+                })
+                .on("mouseleave", () => {
+                    hideTooltip();
+                });
+        }
+
+        function hideTooltip() {
+            if (tooltip) {
+                tooltip.style("display", "none");
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loading-overlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+
+        function render(data, clickedId) {
+            container.selectAll("*").remove();
+
+            const nodes = data.nodes;
+            const links = data.links;
+            
+            // Debug: log node colors
+            console.log('DEBUG: Node colors:', nodes.map(n => ({ name: n.label, party: n.party, color: n.color })));
+
+            // Update header with member info
+            const targetMember = data.target_member;
+            document.getElementById('member-name').textContent = targetMember.name;
+            document.getElementById('member-details').textContent = 
+                `${targetMember.party} • ${targetMember.state}${targetMember.district ? ` • District ${targetMember.district}` : ''}`;
+
+            // Convert links to D3 format
+            const d3Links = links.map(link => ({
+                source: link.source,
+                target: link.target,
+                bill_id: link.bill_id,
+                bill_title: link.bill_title,
+                cosponsor_date: link.cosponsor_date,
+                all_bills: link.all_bills
+            }));
+
+            // Filter out invalid edges
+            validLinks = d3Links.filter(link => {
+                const sourceExists = nodes.some(n => n.id === link.source);
+                const targetExists = nodes.some(n => n.id === link.target);
+                return sourceExists && targetExists;
+            });
+
+            // Detect bidirectional relationships
+            const bidirectionalEdges = new Set();
+            validLinks.forEach(link1 => {
+                validLinks.forEach(link2 => {
+                    if (link1 !== link2 && 
+                        link1.source === link2.target && 
+                        link1.target === link2.source) {
+                        bidirectionalEdges.add(`${link1.source}<->${link1.target}`);
+                    }
+                });
+            });
+
+            // Create force simulation
+            if (simulation) {
+                simulation.stop();
+            }
+
+            // Position nodes based on party affiliation with uniform distribution
+            const targetNode = nodes.find(n => n.is_target);
+            const otherNodes = nodes.filter(n => !n.is_target);
+            
+            // Separate nodes by party
+            const democrats = otherNodes.filter(n => n.party === 'D' || n.party === 'Democrat');
+            const republicans = otherNodes.filter(n => n.party === 'R' || n.party === 'Republican');
+            const independents = otherNodes.filter(n => !(n.party === 'D' || n.party === 'Democrat' || n.party === 'R' || n.party === 'Republican'));
+            
+            // Calculate sector angles (full 360 degrees)
+            const totalNodes = otherNodes.length;
+            const democratAngle = democrats.length > 0 ? (democrats.length / totalNodes) * 2 * Math.PI : 0;
+            const republicanAngle = republicans.length > 0 ? (republicans.length / totalNodes) * 2 * Math.PI : 0;
+            const independentAngle = independents.length > 0 ? (independents.length / totalNodes) * 2 * Math.PI : 0;
+            
+            // Position target member in center
+            if (targetNode) {
+                targetNode.fx = width / 2;
+                targetNode.fy = height / 2;
+            }
+            
+                            // Position Democrats in their sector (starting from left)
+                democrats.forEach((node, index) => {
+                    const startAngle = -Math.PI / 2; // Start from top
+                    const angle = startAngle + (index / Math.max(democrats.length - 1, 1)) * democratAngle;
+                    const radius = 120 + (index % 3) * 20; // Three radii: 120, 140, 160
+                    node.fx = width / 2 + radius * Math.cos(angle);
+                    node.fy = height / 2 + radius * Math.sin(angle);
+                });
+                
+                // Position Republicans in their sector (after Democrats)
+                republicans.forEach((node, index) => {
+                    const startAngle = -Math.PI / 2 + democratAngle; // Start after Democrats
+                    const angle = startAngle + (index / Math.max(republicans.length - 1, 1)) * republicanAngle;
+                    const radius = 120 + (index % 3) * 20; // Three radii: 120, 140, 160
+                    node.fx = width / 2 + radius * Math.cos(angle);
+                    node.fy = height / 2 + radius * Math.sin(angle);
+                });
+                
+                // Position Independents in remaining sectors
+                independents.forEach((node, index) => {
+                    const startAngle = -Math.PI / 2 + democratAngle + republicanAngle; // Start after Democrats and Republicans
+                    const angle = startAngle + (index / Math.max(independents.length - 1, 1)) * independentAngle;
+                    const radius = 120 + (index % 3) * 20; // Three radii: 120, 140, 160
+                    node.fx = width / 2 + radius * Math.cos(angle);
+                    node.fy = height / 2 + radius * Math.sin(angle);
+                });
+
+            simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(validLinks).id(d => d.id).distance(80))
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("collision", d3.forceCollide().radius(25));
+
+            // Create links
+            const linkGroup = container.append("g").attr("stroke-width", 1.5);
+
+            const link = linkGroup.selectAll("line")
+                .data(validLinks)
+                .join("line")
+                .attr("stroke-width", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? 2 : 1;
+                })
+                .attr("stroke", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? "#4CAF50" : "#666";
+                })
+                .on("mouseover", (event, d) => {
+                    showEdgeTooltip(event, d, nodes);
+                })
+                .on("mouseout", (event, d) => {
+                    tooltipTimeout = setTimeout(hideTooltip, 1000);
+                });
+
+            // Create nodes
+            const nodeGroup = container.append("g").attr("stroke-width", 1.5);
+
+            const node = nodeGroup.selectAll("circle")
+                .data(nodes)
+                .join("circle")
+                .attr("r", d => d.is_target ? 12 : 8)
+                .attr("fill", d => d.color)
+                .attr("stroke", d => d.is_target ? "#4CAF50" : "#333")
+                .attr("stroke-width", d => d.is_target ? 3 : 1)
+                .call(d3.drag()
+                    .on("start", dragstart)
+                    .on("drag", dragged)
+                    .on("end", dragend))
+                .on("mouseover", (event, d) => {
+                    showTooltip(event, d, validLinks, nodes);
+                })
+                .on("mouseout", (event, d) => {
+                    hideTooltip();
+                });
+
+            // Add labels
+            const labelGroup = container.append("g");
+
+            const label = labelGroup.selectAll("text")
+                .data(nodes)
+                .join("text")
+                .text(d => d.label)
+                .attr("font-size", d => d.is_target ? "11px" : "8px") // Even smaller font for non-target nodes
+                .attr("font-weight", "bold")
+                .attr("fill", "white")
+                .attr("text-anchor", "middle")
+                .attr("dy", "0.35em")
+                .style("text-shadow", "2px 2px 4px rgba(0,0,0,0.8)")
+                .style("pointer-events", "none"); // Make text non-interactive
+
+            // Update positions on simulation tick
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+
+                label
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y);
+            });
+        }
+
+        async function loadData() {
+            showLoading();
+            try {
+                const response = await fetch(`/api/network/member/${memberId}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    render(data);
+                } else {
+                    console.error('Error loading network data:', data.error);
+                    alert('Error loading network data: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error loading network data:', error);
+                alert('Error loading network data: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', loadData);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const newWidth = window.innerWidth;
+            const newHeight = window.innerHeight - 80;
+            
+            svg.attr("width", newWidth).attr("height", newHeight);
+            
+            if (simulation) {
+                simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+                simulation.alpha(0.3).restart();
+            }
+        });
+    </script>
+</body>
+</html>
