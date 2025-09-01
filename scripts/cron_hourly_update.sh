@@ -34,6 +34,18 @@ else
     # You could add email notification here if needed
 fi
 
+# Pre-calculate ideological profiles (runs after sponsor/cosponsor updates)
+echo "Starting ideological profile pre-calculation at $(date)" | tee -a "$LOG_FILE"
+
+venv/bin/python scripts/precalculate_ideology.py 2>&1 | tee -a "$LOG_FILE"
+
+# Check exit status for ideological calculation
+if [ $? -eq 0 ]; then
+    echo "Ideological profile pre-calculation completed successfully at $(date)" | tee -a "$LOG_FILE"
+else
+    echo "Ideological profile pre-calculation failed at $(date)" | tee -a "$LOG_FILE"
+fi
+
 # Clean up old log files (keep last 7 days)
 find "$LOG_DIR" -name "hourly_update_*.log" -mtime +7 -delete
 

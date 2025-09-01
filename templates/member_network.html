@@ -173,6 +173,33 @@
             .attr("width", width)
             .attr("height", height);
 
+        // Add arrow markers
+        const defs = svg.append("defs");
+        
+        // Arrow marker for directed edges
+        defs.append("marker")
+            .attr("id", "arrowhead")
+            .attr("markerWidth", "10")
+            .attr("markerHeight", "7")
+            .attr("refX", "12")
+            .attr("refY", "3.5")
+            .attr("orient", "auto")
+            .append("polygon")
+            .attr("points", "0 0, 10 3.5, 0 7")
+            .attr("fill", "#666");
+        
+        // Double arrow marker for bidirectional edges
+        defs.append("marker")
+            .attr("id", "double-arrowhead")
+            .attr("markerWidth", "10")
+            .attr("markerHeight", "7")
+            .attr("refX", "12")
+            .attr("refY", "3.5")
+            .attr("orient", "auto")
+            .append("polygon")
+            .attr("points", "0 0, 10 3.5, 0 7")
+            .attr("fill", "#4CAF50");
+
         const container = svg.append("g");
 
         const zoom = d3.zoom()
@@ -287,8 +314,9 @@
             const content = `
                 <h3>Co-sponsorship Relationship${isBidirectional ? ' (Bidirectional)' : ''}</h3>
                 <div class="member-info">
-                    <div><strong>Sponsor:</strong> ${sourceMember ? sourceMember.label : 'Unknown'} (${sourceMember ? sourceMember.party : 'Unknown'})</div>
-                    <div><strong>Co-sponsor:</strong> ${targetMember ? targetMember.label : 'Unknown'} (${targetMember ? targetMember.party : 'Unknown'})</div>
+                    <div><strong>Co-sponsor:</strong> ${sourceMember ? sourceMember.label : 'Unknown'} (${sourceMember ? sourceMember.party : 'Unknown'})</div>
+                    <div><strong>Sponsor:</strong> ${targetMember ? targetMember.label : 'Unknown'} (${targetMember ? targetMember.party : 'Unknown'})</div>
+                    <div><em>Arrow points from co-sponsor to sponsor</em></div>
                     ${isBidirectional ? `<div><em>Note: These members also have a reverse relationship</em></div>` : ''}
                 </div>
                 <div class="relationship-info">
@@ -441,28 +469,7 @@
                 .force("charge", d3.forceManyBody().strength(-200))
                 .force("collision", d3.forceCollide().radius(25));
 
-            // Create links
-            const linkGroup = container.append("g").attr("stroke-width", 1.5);
-
-            const link = linkGroup.selectAll("line")
-                .data(validLinks)
-                .join("line")
-                .attr("stroke-width", d => {
-                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
-                    return isBidirectional ? 2 : 1;
-                })
-                .attr("stroke", d => {
-                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
-                    return isBidirectional ? "#4CAF50" : "#666";
-                })
-                .on("mouseover", (event, d) => {
-                    showEdgeTooltip(event, d, nodes);
-                })
-                .on("mouseout", (event, d) => {
-                    tooltipTimeout = setTimeout(hideTooltip, 1000);
-                });
-
-            // Create nodes
+            // Create nodes first (so they're behind links)
             const nodeGroup = container.append("g").attr("stroke-width", 1.5);
 
             const node = nodeGroup.selectAll("circle")
@@ -483,13 +490,39 @@
                     hideTooltip();
                 });
 
+            // Create links on top (so arrows appear over nodes)
+            const linkGroup = container.append("g").attr("stroke-width", 1.5);
+
+            const link = linkGroup.selectAll("line")
+                .data(validLinks)
+                .join("line")
+                .attr("stroke-width", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? 2 : 1;
+                })
+                .attr("stroke", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? "#4CAF50" : "#666";
+                })
+                .attr("marker-end", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? "url(#double-arrowhead)" : "url(#arrowhead)";
+                })
+                .style("opacity", 0.8) // Slightly transparent so arrows are more visible
+                .on("mouseover", (event, d) => {
+                    showEdgeTooltip(event, d, nodes);
+                })
+                .on("mouseout", (event, d) => {
+                    tooltipTimeout = setTimeout(hideTooltip, 1000);
+                });
+
             // Add labels
             const labelGroup = container.append("g");
 
             const label = labelGroup.selectAll("text")
                 .data(nodes)
                 .join("text")
-                .text(d => d.label)
+                .text(d => d.label.split(' ').pop()) // Show only last name
                 .attr("font-size", d => d.is_target ? "11px" : "8px") // Even smaller font for non-target nodes
                 .attr("font-weight", "bold")
                 .attr("fill", "white")

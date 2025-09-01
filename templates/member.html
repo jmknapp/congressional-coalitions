@@ -49,7 +49,13 @@
                                     <h2 id="member-name" class="mb-2"></h2>
                                     <div class="d-flex align-items-center mb-2">
                                         <span id="member-party-badge" class="party-badge me-3"></span>
-                                        <span id="member-chamber" class="text-muted"></span>
+                                        <span id="member-chamber" class="text-muted me-3"></span>
+                                        <span id="freedom-caucus-badge" class="badge bg-warning text-dark me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus">
+                                            <i class="fas fa-flag me-1"></i>Freedom Caucus
+                                        </span>
+                                        <span id="progressive-caucus-badge" class="badge bg-info text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus">
+                                            <i class="fas fa-star me-1"></i>Progressive Caucus
+                                        </span>
                                     </div>
                                     <p id="member-details" class="text-muted mb-0"></p>
                                 </div>
@@ -122,6 +128,71 @@
                             <div class="text-center">
                                 <h3 id="cosponsored-count" class="text-info mb-1">-</h3>
                                 <small class="text-muted">Cosponsored Bills</small>
+                                <div class="mt-3">
+                                    <a href="/network/member/{{ bioguide_id }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                        <i class="fas fa-project-diagram me-1"></i>View Network
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ideological Profile -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-tags me-2"></i>Ideological Profile</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="ideological-loading" class="text-center">
+                                <i class="fas fa-spinner fa-spin text-primary"></i>
+                                <p class="mt-2 text-muted">Analyzing voting patterns...</p>
+                            </div>
+                            <div id="ideological-content" style="display: none;">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 class="text-muted mb-3">Primary Classification</h6>
+                                        <div class="mb-3">
+                                            <span id="primary-label" class="badge bg-primary fs-6"></span>
+                                            <small class="text-muted d-block mt-1" id="ideological-note"></small>
+                                        </div>
+                                        <div class="mb-3">
+                                            <h6 class="text-muted mb-2">All Labels</h6>
+                                            <div id="all-labels"></div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <h6 class="text-muted mb-3">Voting Metrics</h6>
+                                        <div class="row">
+                                            <div class="col-6">
+                                                <div class="text-center">
+                                                    <h4 id="party-line-percentage" class="text-success mb-1">-</h4>
+                                                    <small class="text-muted">Party Line Votes</small>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="text-center">
+                                                    <h4 id="cross-party-percentage" class="text-warning mb-1">-</h4>
+                                                    <small class="text-muted">Cross-Party Votes</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <div class="text-center">
+                                                <h4 id="ideological-score" class="text-info mb-1">-</h4>
+                                                <small class="text-muted">Ideological Score</small>
+                                                <small class="text-muted d-block">(Party Line - Cross-Party)</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="ideological-error" class="alert alert-warning" style="display: none;">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <span id="ideological-error-message"></span>
                             </div>
                         </div>
                     </div>
@@ -224,6 +295,28 @@
             document.getElementById('member-party-badge').className = `party-badge party-${member.party.toLowerCase()}`;
             document.getElementById('member-chamber').textContent = member.chamber;
             
+            // Freedom Caucus badge
+            const freedomCaucusBadge = document.getElementById('freedom-caucus-badge');
+            if (member.is_freedom_caucus) {
+                freedomCaucusBadge.style.display = 'inline-block';
+            } else {
+                freedomCaucusBadge.style.display = 'none';
+            }
+            
+            // Progressive Caucus badge
+            const progressiveCaucusBadge = document.getElementById('progressive-caucus-badge');
+            if (member.is_progressive_caucus) {
+                progressiveCaucusBadge.style.display = 'inline-block';
+            } else {
+                progressiveCaucusBadge.style.display = 'none';
+            }
+            
+            // Initialize tooltips for caucus badges
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            
             const details = [];
             if (member.state) details.push(member.state);
             if (member.district) details.push(`District ${member.district}`);
@@ -247,6 +340,11 @@
             
             // Recent votes
             displayRecentVotes(data.recent_votes);
+            
+            // Ideological profile
+            if (data.ideological_profile) {
+                displayIdeologicalProfile(data.ideological_profile);
+            }
             
             // Show content
             document.getElementById('loading').style.display = 'none';
@@ -277,6 +375,50 @@
                 `;
                 tbody.appendChild(row);
             });
+        }
+        
+        function displayIdeologicalProfile(profile) {
+            // Hide loading, show content
+            document.getElementById('ideological-loading').style.display = 'none';
+            document.getElementById('ideological-content').style.display = 'block';
+            
+            // Check for errors
+            if (profile.error) {
+                document.getElementById('ideological-error-message').textContent = profile.error;
+                document.getElementById('ideological-error').style.display = 'block';
+                return;
+            }
+            
+            // Primary label
+            document.getElementById('primary-label').textContent = profile.primary_label;
+            
+            // Note
+            if (profile.note) {
+                document.getElementById('ideological-note').textContent = profile.note;
+            }
+            
+            // All labels
+            const allLabelsContainer = document.getElementById('all-labels');
+            allLabelsContainer.innerHTML = '';
+            if (profile.labels && profile.labels.length > 0) {
+                profile.labels.forEach(label => {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-secondary me-2 mb-2';
+                    badge.textContent = label;
+                    allLabelsContainer.appendChild(badge);
+                });
+            }
+            
+            // Voting metrics
+            if (profile.party_line_percentage !== undefined) {
+                document.getElementById('party-line-percentage').textContent = `${profile.party_line_percentage}%`;
+            }
+            if (profile.cross_party_percentage !== undefined) {
+                document.getElementById('cross-party-percentage').textContent = `${profile.cross_party_percentage}%`;
+            }
+            if (profile.ideological_score !== undefined) {
+                document.getElementById('ideological-score').textContent = profile.ideological_score;
+            }
         }
         
         function displayRecentVotes(votes) {

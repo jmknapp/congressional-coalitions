@@ -15,12 +15,52 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action
+from sqlalchemy import or_
 from scripts.simple_house_analysis import run_simple_house_analysis
+from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
+from scripts.precalculate_ideology import get_member_ideology_fast
+
+def load_caucus_data():
+    """Load caucus membership data from cache for multiple caucuses."""
+    caucus_data = {}
+    
+    # Load Freedom Caucus data
+    try:
+        freedom_caucus_file = 'cache/freedom_caucus_members.json'
+        if os.path.exists(freedom_caucus_file):
+            with open(freedom_caucus_file, 'r') as f:
+                data = json.load(f)
+                caucus_data['freedom_caucus'] = {member['bioguide_id'] for member in data.get('members', [])}
+        else:
+            caucus_data['freedom_caucus'] = set()
+    except Exception as e:
+        print(f"Error loading Freedom Caucus data: {e}")
+        caucus_data['freedom_caucus'] = set()
+    
+    # Load Progressive Caucus data
+    try:
+        progressive_caucus_file = 'cache/progressive_caucus_members.json'
+        if os.path.exists(progressive_caucus_file):
+            with open(progressive_caucus_file, 'r') as f:
+                data = json.load(f)
+                caucus_data['progressive_caucus'] = {member['bioguide_id'] for member in data.get('members', [])}
+        else:
+            caucus_data['progressive_caucus'] = set()
+    except Exception as e:
+        print(f"Error loading Progressive Caucus data: {e}")
+        caucus_data['progressive_caucus'] = set()
+    
+    return caucus_data
 
 app = Flask(__name__)
 CORS(app)
 
+# Note: Ideological profiles are now pre-calculated and cached for performance.
+# See scripts/precalcul
+# ate_ideology.py for the calculation logic.
+
 # Set database URL
+
 os.environ['DATABASE_URL'] = 'mysql://congressional:congressional123@localhost/congressional_coalitions'
 
 @app.route('/')
@@ -64,6 +104,9 @@ def get_summary():
 def get_members():
     """Get House members only with their details."""
     try:
+        # Load caucus data
+        caucus_data = load_caucus_data()
+        
         with get_db_session() as session:
             # Filter for House members only (those with districts)
             members = session.query(Member).filter(Member.district.isnot(None)).all()
@@ -76,6 +119,10 @@ def get_members():
                 # Get cosponsorship count
                 cosponsor_count = session.query(Cosponsor).filter(Cosponsor.member_id_bioguide == member.member_id_bioguide).count()
                 
+                # Check caucus memberships
+                is_freedom_caucus = member.member_id_bioguide in caucus_data['freedom_caucus']
+                is_progressive_caucus = member.member_id_bioguide in caucus_data['progressive_caucus']
+                
                 member_data.append({
                     'id': member.member_id_bioguide,
                     'name': f"{member.first} {member.last}",
@@ -85,7 +132,9 @@ def get_members():
                     'chamber': 'House',
                     'vote_count': vote_count,
                     'cosponsor_count': cosponsor_count,
-                    'start_date': member.start_date.isoformat() if member.start_date else None
+                    'start_date': member.start_date.isoformat() if member.start_date else None,
+                    'is_freedom_caucus': is_freedom_caucus,
+                    'is_progressive_caucus': is_progressive_caucus
                 })
             
             return jsonify(member_data)
@@ -380,10 +429,11 @@ def get_simplified_cosponsorship_network():
                 Cosponsor.member_id_bioguide.in_(active_member_ids)
             ).all()
             
-            # Group by sponsor -> cosponsor relationships
+            # Group by sponsor -> cosponsor relationships (bidirectional)
             edges = {}
             for cosponsor, bill in cosponsorships:
                 if bill.sponsor_bioguide != cosponsor.member_id_bioguide:
+                    # Create edge key for this specific direction
                     edge_key = f"{bill.sponsor_bioguide}->{cosponsor.member_id_bioguide}"
                     
                     if edge_key not in edges:
@@ -423,14 +473,15 @@ def get_simplified_cosponsorship_network():
                     node_edge_counts.get(target_node, 0) >= max_edges_per_node):
                     continue
                 
-                # Add the edge with the first bill's details (for tooltip)
-                first_bill = edge_data['bills'][0]
+                # Add the edge with all bills in the relationship
+                first_bill = edge_data['bills'][0]  # Get the first bill for basic info
                 links.append({
                     'source': source_node,
                     'target': target_node,
                     'bill_id': first_bill['bill_id'],
                     'bill_title': first_bill['bill_title'],
-                    'cosponsor_date': first_bill['cosponsor_date']
+                    'cosponsor_date': first_bill['cosponsor_date'],
+                    'all_bills': edge_data['bills']  # Include all bills for tooltip
                 })
                 
                 # Update edge counts
@@ -456,6 +507,120 @@ def simplified_network_page():
     """Simplified network visualization page."""
     return render_template('network_simplified.html')
 
+@app.route('/network/member/<bioguide_id>')
+def member_network_page(bioguide_id):
+    """Member-specific network visualization page."""
+    return render_template('member_network.html', bioguide_id=bioguide_id)
+
+@app.route('/api/network/member/<bioguide_id>')
+def get_member_network(bioguide_id):
+    """Get network data for a specific member with only distance-1 relationships."""
+    try:
+        with get_db_session() as session:
+            # Get the target member
+            target_member = session.query(Member).filter(
+                Member.member_id_bioguide == bioguide_id
+            ).first()
+            
+            if not target_member:
+                return jsonify({'error': 'Member not found'}), 404
+            
+            # Get all co-sponsorships involving this member
+            cosponsorships = session.query(Cosponsor, Bill).join(Bill).filter(
+                or_(
+                    Cosponsor.member_id_bioguide == bioguide_id,  # Member is co-sponsor
+                    Bill.sponsor_bioguide == bioguide_id  # Member is sponsor
+                )
+            ).all()
+            
+            # Collect all unique member IDs involved
+            member_ids = {bioguide_id}  # Include the target member
+            
+            # Get all relationships involving the target member
+            edges = {}
+            for cosponsor, bill in cosponsorships:
+                if bill.sponsor_bioguide != cosponsor.member_id_bioguide:
+                    # Add both members to the set
+                    member_ids.add(bill.sponsor_bioguide)
+                    member_ids.add(cosponsor.member_id_bioguide)
+                    
+                    # Create edge key
+                    edge_key = f"{bill.sponsor_bioguide}->{cosponsor.member_id_bioguide}"
+                    
+                    if edge_key not in edges:
+                        edges[edge_key] = {
+                            'source': bill.sponsor_bioguide,
+                            'target': cosponsor.member_id_bioguide,
+                            'bills': []
+                        }
+                    
+                    edges[edge_key]['bills'].append({
+                        'bill_id': bill.bill_id,
+                        'bill_title': bill.title or f"{bill.type.upper()} {bill.number}",
+                        'cosponsor_date': cosponsor.date.isoformat() if cosponsor.date else None
+                    })
+            
+            # Get all members involved
+            members = session.query(Member).filter(
+                Member.member_id_bioguide.in_(member_ids)
+            ).all()
+            
+            # Create nodes
+            nodes = []
+            for member in members:
+                # Count bills sponsored by this member
+                bills_sponsored = session.query(Bill).filter(
+                    Bill.sponsor_bioguide == member.member_id_bioguide
+                ).count()
+                
+                # Determine node color based on party
+                color = '#1f77b4'  # Default blue (Democrat)
+                if member.party == 'Republican' or member.party == 'R':
+                    color = '#d62728'  # Red
+                elif member.party == 'Independent' or member.party == 'I':
+                    color = '#ff7f0e'  # Orange
+                
+                # Debug: print party info
+                print(f"DEBUG: Member {member.first} {member.last} - Party: '{member.party}' - Color: {color}")
+                
+                nodes.append({
+                    'id': member.member_id_bioguide,
+                    'label': f"{member.first} {member.last}",
+                    'party': member.party,
+                    'state': member.state,
+                    'district': member.district,
+                    'color': color,
+                    'bills_sponsored': bills_sponsored,
+                    'is_target': member.member_id_bioguide == bioguide_id
+                })
+            
+            # Create links
+            links = []
+            for edge_key, edge_data in edges.items():
+                first_bill = edge_data['bills'][0]
+                links.append({
+                    'source': edge_data['source'],
+                    'target': edge_data['target'],
+                    'bill_id': first_bill['bill_id'],
+                    'bill_title': first_bill['bill_title'],
+                    'cosponsor_date': first_bill['cosponsor_date'],
+                    'all_bills': edge_data['bills']
+                })
+            
+            return jsonify({
+                'nodes': nodes,
+                'links': links,
+                'target_member': {
+                    'id': target_member.member_id_bioguide,
+                    'name': f"{target_member.first} {target_member.last}",
+                    'party': target_member.party,
+                    'state': target_member.state,
+                    'district': target_member.district
+                }
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/member/<bioguide_id>')
 def member_details_page(bioguide_id):
     """Member details page."""
@@ -465,10 +630,15 @@ def member_details_page(bioguide_id):
 @app.route('/api/member/<bioguide_id>')
 def get_member_details(bioguide_id):
     """Get detailed information for a specific member."""
+    app.logger.info(f"DEBUG: get_member_details called for bioguide_id: {bioguide_id}")
     try:
+        # Load caucus data
+        caucus_data = load_caucus_data()
+        
         with get_db_session() as session:
             # Get member basic info
             member = session.query(Member).filter(Member.member_id_bioguide == bioguide_id).first()
+            app.logger.info(f"DEBUG: Member query result: {member.member_id_bioguide if member else 'None'}")
             if not member:
                 return jsonify({'error': 'Member not found'}), 404
             
@@ -519,6 +689,23 @@ def get_member_details(bioguide_id):
                 Vote.member_id_bioguide == bioguide_id
             ).join(Rollcall).order_by(Rollcall.date.desc()).limit(20).all()
             
+            # Get ideological profile from cache (fast)
+            app.logger.info(f"DEBUG: About to call get_member_ideology_fast for {member.member_id_bioguide}")
+            try:
+                ideological_data = get_member_ideology_fast(member.member_id_bioguide, congress=119, chamber='house')
+                app.logger.info(f"DEBUG: Successfully got ideological data for {member.member_id_bioguide}")
+                app.logger.info(f"DEBUG: Raw ideological_data: {ideological_data}")
+            except Exception as e:
+                app.logger.error(f"DEBUG: Error getting ideological data for {member.member_id_bioguide}: {e}")
+                ideological_data = {}
+            
+            # Debug: Log what we're getting from cache
+            app.logger.info(f"DEBUG: Member {member.member_id_bioguide} ideological data from cache:")
+            app.logger.info(f"  Party Line: {ideological_data.get('party_line_percentage', 'N/A')}%")
+            app.logger.info(f"  Cross-Party: {ideological_data.get('cross_party_percentage', 'N/A')}%")
+            app.logger.info(f"  Labels: {ideological_data.get('labels', 'N/A')}")
+            app.logger.info(f"  Full ideological_data keys: {list(ideological_data.keys()) if isinstance(ideological_data, dict) else 'Not a dict'}")
+            
             recent_votes_data = []
             for vote in recent_votes:
                 rollcall = session.query(Rollcall).filter(Rollcall.rollcall_id == vote.rollcall_id).first()
@@ -539,6 +726,10 @@ def get_member_details(bioguide_id):
                         'bill_title': bill_title
                     })
             
+            # Check caucus memberships
+            is_freedom_caucus = member.member_id_bioguide in caucus_data['freedom_caucus']
+            is_progressive_caucus = member.member_id_bioguide in caucus_data['progressive_caucus']
+            
             return jsonify({
                 'member': {
                     'id': member.member_id_bioguide,
@@ -549,7 +740,9 @@ def get_member_details(bioguide_id):
                     'state': member.state,
                     'district': member.district,
                     'chamber': 'House' if member.district else 'Senate',
-                    'start_date': member.start_date.isoformat() if member.start_date else None
+                    'start_date': member.start_date.isoformat() if member.start_date else None,
+                    'is_freedom_caucus': is_freedom_caucus,
+                    'is_progressive_caucus': is_progressive_caucus
                 },
                 'voting_stats': {
                     'total_votes': total_votes,
@@ -561,7 +754,8 @@ def get_member_details(bioguide_id):
                 },
                 'sponsored_bills': sponsored_bills_data,
                 'cosponsored_bills': cosponsored_bills_data,
-                'recent_votes': recent_votes_data
+                'recent_votes': recent_votes_data,
+                'ideological_profile': ideological_data
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

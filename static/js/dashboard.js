@@ -55,14 +55,31 @@ async function loadMembers() {
         
         members.forEach(member => {
             const row = document.createElement('tr');
+            
+            // Create caucus badges with tooltips
+            const freedomCaucusBadge = member.is_freedom_caucus ? 
+                '<span class="badge bg-warning text-dark ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus"><i class="fas fa-flag me-1"></i>FC</span>' : '';
+            const progressiveCaucusBadge = member.is_progressive_caucus ? 
+                '<span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-star me-1"></i>PC</span>' : '';
+            
             row.innerHTML = `
-                <td><a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a></td>
+                <td>
+                    <a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a>
+                    ${freedomCaucusBadge}
+                    ${progressiveCaucusBadge}
+                </td>
                 <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
                 <td>${member.state}</td>
                 <td>${member.chamber}</td>
                 <td>${member.vote_count}</td>
             `;
             tbody.appendChild(row);
+        });
+        
+        // Initialize tooltips for caucus badges
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
         });
         
     } catch (error) {
@@ -347,7 +364,7 @@ function displayAnalysisResults(data, congress, chamber, window) {
                     <td><span class="member-chip ${partyClass}">${member.name}</span></td>
                     <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
                     <td>${member.state}</td>
-                    <td><span class="badge ${percentageClass}">${member.cross_party_percentage.toFixed(1)}%</span></td>
+                    <td><span class="badge ${percentageClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Cross-party voting percentage">${member.cross_party_percentage.toFixed(1)}%</span></td>
                     <td>${member.cross_party_votes}</td>
                     <td>${member.total_votes}</td>
                 </tr>
@@ -379,6 +396,12 @@ function displayAnalysisResults(data, congress, chamber, window) {
     }
     
     analysisContent.innerHTML = html;
+    
+    // Initialize tooltips for analysis results
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
 }
 
 // Show vote details modal

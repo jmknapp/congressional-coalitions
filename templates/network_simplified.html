@@ -304,6 +304,7 @@
         };
         let updateTimeout = null;
         let tooltipTimeout = null;
+        let validLinks = []; // Global variable to store current links
 
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -419,15 +420,36 @@
             const sourceMember = currentNodes.find(n => n.id === link.source.id);
             const targetMember = currentNodes.find(n => n.id === link.target.id);
             
+            // Check if this is a bidirectional relationship
+            const reverseLink = validLinks.find(l => 
+                l !== link && 
+                l.source === link.target && 
+                l.target === link.source
+            );
+            const isBidirectional = !!reverseLink;
+            
             const content = `
-                <h3>Co-sponsorship Relationship</h3>
+                <h3>Co-sponsorship Relationship${isBidirectional ? ' (Bidirectional)' : ''}</h3>
                 <div class="member-info">
                     <div><strong>Sponsor:</strong> ${sourceMember ? sourceMember.label : 'Unknown'} (${sourceMember ? sourceMember.party : 'Unknown'})</div>
                     <div><strong>Co-sponsor:</strong> ${targetMember ? targetMember.label : 'Unknown'} (${targetMember ? targetMember.party : 'Unknown'})</div>
+                    ${isBidirectional ? `<div><em>Note: These members also have a reverse relationship</em></div>` : ''}
                 </div>
                 <div class="relationship-info">
-                    <div><strong>Bill:</strong> <a href="https://www.congress.gov/bill/119th-congress/house-bill/${link.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${link.bill_title || link.bill_id || 'Unknown Bill'}</a></div>
-                    <div><strong>Co-sponsor Date:</strong> ${link.cosponsor_date || 'Unknown Date'}</div>
+                    <div><strong>Bills (${link.all_bills ? link.all_bills.length : 1}):</strong></div>
+                    <div class="bill-list">
+                        ${link.all_bills ? link.all_bills.map(bill => `
+                            <div class="bill-item">
+                                <a href="https://www.congress.gov/bill/119th-congress/house-bill/${bill.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${bill.bill_title || bill.bill_id || 'Unknown Bill'}</a>
+                                <div class="bill-date">${bill.cosponsor_date || 'Unknown Date'}</div>
+                            </div>
+                        `).join('') : `
+                            <div class="bill-item">
+                                <a href="https://www.congress.gov/bill/119th-congress/house-bill/${link.bill_id.split('-')[1]}" target="_blank" style="color: #4CAF50; text-decoration: underline;">${link.bill_title || link.bill_id || 'Unknown Bill'}</a>
+                                <div class="bill-date">${link.cosponsor_date || 'Unknown Date'}</div>
+                            </div>
+                        `}
+                    </div>
                 </div>
             `;
             
@@ -556,7 +578,7 @@
             }));
             
             // Filter out invalid edges
-            const validLinks = d3Links.filter(link => {
+            validLinks = d3Links.filter(link => {
                 const sourceExists = nodes.some(n => n.id === link.source);
                 const targetExists = nodes.some(n => n.id === link.target);
                 return sourceExists && targetExists;
@@ -576,15 +598,32 @@
             const linkGroup = container.append("g").attr("stroke-opacity", 0.4);
             const nodeGroup = container.append("g").attr("stroke-width", 1.5);
         
+            // Detect bidirectional relationships
+            const bidirectionalEdges = new Set();
+            validLinks.forEach(link1 => {
+                validLinks.forEach(link2 => {
+                    if (link1 !== link2 && 
+                        link1.source === link2.target && 
+                        link1.target === link2.source) {
+                        bidirectionalEdges.add(`${link1.source}<->${link1.target}`);
+                    }
+                });
+            });
+
             const link = linkGroup.selectAll("line")
                 .data(validLinks)
                 .join("line")
-                .attr("stroke-width", 1)
-                .attr("stroke", d =>
-                    clickedId && (d.source === clickedId || d.target === clickedId)
-                        ? "#ff6666"
-                        : "#666"
-                )
+                .attr("stroke-width", d => {
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? 2 : 1;
+                })
+                .attr("stroke", d => {
+                    if (clickedId && (d.source === clickedId || d.target === clickedId)) {
+                        return "#ff6666";
+                    }
+                    const isBidirectional = bidirectionalEdges.has(`${d.source}<->${d.target}`);
+                    return isBidirectional ? "#4CAF50" : "#666";
+                })
                 .on("mouseover", (event, d) => {
                     showEdgeTooltip(event, d, nodes);
                 })
@@ -623,7 +662,8 @@
                 .attr("stroke", "black")
                 .attr("stroke-width", 0.3)
                 .style("font", "bold 12px Arial")
-                .style("font-weight", "900");
+                .style("font-weight", "900")
+                .style("pointer-events", "none"); // Make text non-interactive
             
             // Add tooltip events
             node.on("mouseover", (event, d) => {

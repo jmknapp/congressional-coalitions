@@ -252,44 +252,51 @@ def run_simple_house_analysis(congress: int, chamber: str = 'house', window_days
             continue  # Skip independents for this analysis
             
         member_votes = [v for v in votes_data if v['member_id_bioguide'] == member_id]
-        party_line_votes_for_member = []
+        cross_party_votes_for_member = []
         
         for vote in member_votes:
             rollcall_id = vote['rollcall_id']
             if rollcall_id in vote_matrix:
-                # Calculate party consensus for this vote
-                party_votes = {'D': {'Yea': 0, 'Nay': 0}, 'R': {'Yea': 0, 'Nay': 0}}
-                
+                # Get all votes for this rollcall to determine party positions
+                rollcall_votes = []
                 for other_member_id, other_vote_code in vote_matrix[rollcall_id].items():
                     if other_member_id in member_data and other_vote_code in ['Yea', 'Nay']:
                         other_party = member_data[other_member_id]['party']
                         if other_party in ['D', 'R']:
-                            party_votes[other_party][other_vote_code] += 1
+                            rollcall_votes.append({
+                                'vote_code': other_vote_code,
+                                'party': other_party
+                            })
                 
-                # Determine party consensus
-                d_total = party_votes['D']['Yea'] + party_votes['D']['Nay']
-                r_total = party_votes['R']['Yea'] + party_votes['R']['Nay']
-                
-                if d_total > 0 and r_total > 0:
-                    d_yea_pct = party_votes['D']['Yea'] / d_total * 100
-                    r_yea_pct = party_votes['R']['Yea'] / r_total * 100
+                # Check if member voted cross-party (using stricter definition)
+                if vote['vote_code'] in ['Yea', 'Nay'] and rollcall_votes:
+                    # Get party positions for this rollcall
+                    d_yea_count = sum(1 for v in rollcall_votes if v['vote_code'] == 'Yea' and v['party'] == 'D')
+                    d_nay_count = sum(1 for v in rollcall_votes if v['vote_code'] == 'Nay' and v['party'] == 'D')
+                    r_yea_count = sum(1 for v in rollcall_votes if v['vote_code'] == 'Yea' and v['party'] == 'R')
+                    r_nay_count = sum(1 for v in rollcall_votes if v['vote_code'] == 'Nay' and v['party'] == 'R')
                     
-                    # Determine which way the member's party voted
-                    member_party = member_info['party']
-                    if member_party == 'D':
-                        party_consensus = 'Yea' if d_yea_pct > 50 else 'Nay'
+                    # Determine party positions (majority vote)
+                    d_position = 'Yea' if d_yea_count > d_nay_count else 'Nay'
+                    r_position = 'Yea' if r_yea_count > r_nay_count else 'Nay'
+                    
+                    # Only count as cross-party if voting with opposite party AND against own party
+                    if member_info['party'] == 'D':
+                        opposite_position = r_position
+                        own_position = d_position
                     else:  # Republican
-                        party_consensus = 'Yea' if r_yea_pct > 50 else 'Nay'
+                        opposite_position = d_position
+                        own_position = r_position
                     
-                    # Check if member voted against party
-                    if vote['vote_code'] in ['Yea', 'Nay'] and vote['vote_code'] != party_consensus:
-                        party_line_votes_for_member.append(rollcall_id)
+                    # Cross-party: voting with opposite party AND against own party
+                    if vote['vote_code'] == opposite_position and vote['vote_code'] != own_position:
+                        cross_party_votes_for_member.append(rollcall_id)
         
         # Calculate cross-party percentage
         total_votes = len([v for v in member_votes if v['vote_code'] in ['Yea', 'Nay']])
         if total_votes >= 10:  # Only include members with sufficient votes
-            cross_party_percentage = (len(party_line_votes_for_member) / total_votes) * 100
-            if cross_party_percentage >= 5:  # Only include if they cross party lines at least 5% of the time
+            cross_party_percentage = (len(cross_party_votes_for_member) / total_votes) * 100
+            if cross_party_percentage >= 1:  # Only include if they cross party lines at least 1% of the time
                 cross_party_voters.append({
                     'member_id': member_id,
                     'name': member_info['name'],
@@ -297,11 +304,13 @@ def run_simple_house_analysis(congress: int, chamber: str = 'house', window_days
                     'state': member_info['state'],
                     'cross_party_percentage': cross_party_percentage,
                     'total_votes': total_votes,
-                    'cross_party_votes': len(party_line_votes_for_member)
+                    'cross_party_votes': len(cross_party_votes_for_member)
                 })
     
     # Sort by cross-party percentage (highest first)
     cross_party_voters.sort(key=lambda x: x['cross_party_percentage'], reverse=True)
+    
+
     
     # Calculate member agreement scores (with optimization)
     member_agreement = {}
@@ -332,18 +341,75 @@ def run_simple_house_analysis(congress: int, chamber: str = 'house', window_days
         for member2_id in member_agreement[member1_id]:
             if member1_id < member2_id:  # Avoid duplicates
                 agreement = member_agreement[member1_id][member2_id]
-                voting_pairs.append({
-                    'member1': member_data[member1_id]['name'],
-                    'member2': member_data[member2_id]['name'],
-                    'party1': member_data[member1_id]['party'],
-                    'party2': member_data[member2_id]['party'],
-                    'agreement': agreement
-                })
+                
+                # Randomize which member appears first to avoid alphabetical bias
+                import random
+                if random.random() < 0.5:
+                    # member1 first
+                    voting_pairs.append({
+                        'member1': member_data[member1_id]['name'],
+                        'member2': member_data[member2_id]['name'],
+                        'party1': member_data[member1_id]['party'],
+                        'party2': member_data[member2_id]['party'],
+                        'agreement': agreement
+                    })
+                else:
+                    # member2 first
+                    voting_pairs.append({
+                        'member1': member_data[member2_id]['name'],
+                        'member2': member_data[member1_id]['name'],
+                        'party1': member_data[member2_id]['party'],
+                        'party2': member_data[member1_id]['party'],
+                        'agreement': agreement
+                    })
     
-    most_similar_pairs = sorted(voting_pairs, key=lambda x: x['agreement'], reverse=True)[:10]
+    # Find most similar voting pairs with diversity
+    most_similar_pairs = []
+    used_members = set()
     
-    # Find most different voting pairs
-    most_different_pairs = sorted(voting_pairs, key=lambda x: x['agreement'])[:10]
+    # Sort all pairs by agreement score
+    sorted_pairs = sorted(voting_pairs, key=lambda x: x['agreement'], reverse=True)
+    
+    for pair in sorted_pairs:
+        # Check if we already have enough pairs
+        if len(most_similar_pairs) >= 10:
+            break
+            
+        # Extract member names (handle both orders)
+        member1_name = pair['member1']
+        member2_name = pair['member2']
+        
+        # Only add this pair if at least one member hasn't been used much
+        member1_count = sum(1 for p in most_similar_pairs if p['member1'] == member1_name or p['member2'] == member1_name)
+        member2_count = sum(1 for p in most_similar_pairs if p['member1'] == member2_name or p['member2'] == member2_name)
+        
+        # Allow a member to appear in at most 2 pairs to ensure diversity
+        if member1_count < 2 and member2_count < 2:
+            most_similar_pairs.append(pair)
+    
+    # Find most different voting pairs with diversity
+    most_different_pairs = []
+    used_members_different = set()
+    
+    # Sort all pairs by agreement score (ascending for most different)
+    sorted_pairs_different = sorted(voting_pairs, key=lambda x: x['agreement'])
+    
+    for pair in sorted_pairs_different:
+        # Check if we already have enough pairs
+        if len(most_different_pairs) >= 10:
+            break
+            
+        # Extract member names
+        member1_name = pair['member1']
+        member2_name = pair['member2']
+        
+        # Only add this pair if at least one member hasn't been used much
+        member1_count = sum(1 for p in most_different_pairs if p['member1'] == member1_name or p['member2'] == member1_name)
+        member2_count = sum(1 for p in most_different_pairs if p['member1'] == member2_name or p['member2'] == member2_name)
+        
+        # Allow a member to appear in at most 2 pairs to ensure diversity
+        if member1_count < 2 and member2_count < 2:
+            most_different_pairs.append(pair)
     
     # Get recent bills (with caching)
     cache_key = get_cache_key("recent_bills", congress, chamber, start_date.isoformat())
@@ -438,4 +504,8 @@ if __name__ == "__main__":
     
     print("\n=== MOST SIMILAR VOTERS ===")
     for pair in results['member_analysis']['most_similar_voters'][:5]:
+        print(f"{pair['member1']} ({pair['party1']}) & {pair['member2']} ({pair['party2']}): {pair['agreement']:.1f}% agreement")
+    
+    print("\n=== MOST DIFFERENT VOTERS ===")
+    for pair in results['member_analysis']['most_different_voters'][:5]:
         print(f"{pair['member1']} ({pair['party1']}) & {pair['member2']} ({pair['party2']}): {pair['agreement']:.1f}% agreement")
