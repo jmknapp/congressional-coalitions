@@ -50,12 +50,21 @@
                                     <div class="d-flex align-items-center mb-2">
                                         <span id="member-party-badge" class="party-badge me-3"></span>
                                         <span id="member-chamber" class="text-muted me-3"></span>
-                                        <span id="freedom-caucus-badge" class="badge bg-warning text-dark me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus">
-                                            <i class="fas fa-flag me-1"></i>Freedom Caucus
-                                        </span>
-                                        <span id="progressive-caucus-badge" class="badge bg-info text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus">
-                                            <i class="fas fa-star me-1"></i>Progressive Caucus
-                                        </span>
+                                                        <span id="freedom-caucus-badge" class="badge bg-warning text-dark me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus">
+                    <i class="fas fa-scale-unbalanced me-1"></i>Freedom Caucus
+                </span>
+                <span id="progressive-caucus-badge" class="badge bg-info text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus">
+                    <i class="fas fa-arrow-trend-up me-1"></i>Progressive Caucus
+                </span>
+                <span id="blue-dog-coalition-badge" class="badge bg-primary text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition">
+                    <i class="fas fa-dog me-1"></i>Blue Dog Coalition
+                </span>
+                <span id="maga-republican-badge" class="badge bg-danger text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republican">
+                    <i class="fas fa-biohazard me-1"></i>MAGA
+                </span>
+                <span id="congressional-black-caucus-badge" class="badge bg-dark text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus">
+                    <i class="fas fa-users me-1"></i>CBC
+                </span>
                                     </div>
                                     <p id="member-details" class="text-muted mb-0"></p>
                                 </div>
@@ -309,6 +318,30 @@
                 progressiveCaucusBadge.style.display = 'inline-block';
             } else {
                 progressiveCaucusBadge.style.display = 'none';
+            }
+            
+            // Blue Dog Coalition badge
+            const blueDogCoalitionBadge = document.getElementById('blue-dog-coalition-badge');
+            if (member.is_blue_dog_coalition) {
+                blueDogCoalitionBadge.style.display = 'inline-block';
+            } else {
+                blueDogCoalitionBadge.style.display = 'none';
+            }
+            
+            // MAGA Republican badge
+            const magaRepublicanBadge = document.getElementById('maga-republican-badge');
+            if (member.is_maga_republican) {
+                magaRepublicanBadge.style.display = 'inline-block';
+            } else {
+                magaRepublicanBadge.style.display = 'none';
+            }
+            
+            // Congressional Black Caucus badge
+            const congressionalBlackCaucusBadge = document.getElementById('congressional-black-caucus-badge');
+            if (member.is_congressional_black_caucus) {
+                congressionalBlackCaucusBadge.style.display = 'inline-block';
+            } else {
+                congressionalBlackCaucusBadge.style.display = 'none';
             }
             
             // Initialize tooltips for caucus badges

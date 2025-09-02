@@ -16,14 +16,20 @@ from src.utils.database import get_db_session
 from scripts.setup_db import Member
 
 def scrape_freedom_caucus_website():
-    """Scrape the Freedom Caucus website for current membership."""
+    """Scrape Freedom Caucus membership from alternative sources."""
     
-    url = "https://freedomcaucus.house.gov/members"
+    # Try multiple sources since the official website is dead
+    urls = [
+        "https://ballotpedia.org/Freedom_Caucus",
+        "https://en.wikipedia.org/wiki/Freedom_Caucus",
+        "https://www.congress.gov/search?q=%7B%22congress%22%3A%5B%22119%22%5D%2C%22chamber%22%3A%5B%22House%22%5D%7D"
+    ]
     
-    try:
-        print(f"🔍 Scraping Freedom Caucus website: {url}")
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
+    for url in urls:
+        try:
+            print(f"🔍 Scraping Freedom Caucus source: {url}")
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
@@ -64,16 +70,19 @@ def scrape_freedom_caucus_website():
         members = list(set(members))
         members.sort()
         
-        print(f"✅ Extracted {len(members)} unique member names")
-        
-        return members
-        
+        if members:
+            print(f"✅ Extracted {len(members)} unique member names from {url}")
+            return members
+            
     except requests.RequestException as e:
-        print(f"❌ Error scraping website: {e}")
-        return []
+        print(f"❌ Error scraping {url}: {e}")
+        continue
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        return []
+        print(f"❌ Unexpected error with {url}: {e}")
+        continue
+    
+    print("❌ All Freedom Caucus sources failed")
+    return []
 
 def get_known_freedom_caucus_members():
     """Get a manually curated list of known Freedom Caucus members as backup."""

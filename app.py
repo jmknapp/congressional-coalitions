@@ -15,40 +15,70 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action
+from scripts.setup_caucus_tables import Caucus, CaucusMembership
 from sqlalchemy import or_
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
 
 def load_caucus_data():
-    """Load caucus membership data from cache for multiple caucuses."""
+    """Load caucus membership data from database."""
+    print("DEBUG: load_caucus_data() called")
     caucus_data = {}
     
-    # Load Freedom Caucus data
     try:
-        freedom_caucus_file = 'cache/freedom_caucus_members.json'
-        if os.path.exists(freedom_caucus_file):
-            with open(freedom_caucus_file, 'r') as f:
-                data = json.load(f)
-                caucus_data['freedom_caucus'] = {member['bioguide_id'] for member in data.get('members', [])}
-        else:
-            caucus_data['freedom_caucus'] = set()
+        with get_db_session() as session:
+            # Load Freedom Caucus members
+            freedom_caucus_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'Freedom Caucus',
+                CaucusMembership.end_date.is_(None)  # Active memberships only
+            ).all()
+            caucus_data['freedom_caucus'] = {m.member_id_bioguide for m in freedom_caucus_members}
+            
+            # Load Progressive Caucus members
+            progressive_caucus_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'Progressive Caucus',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['progressive_caucus'] = {m.member_id_bioguide for m in progressive_caucus_members}
+            
+            # Load Blue Dog Coalition members
+            blue_dog_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'Blue Dog',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['blue_dog_coalition'] = {m.member_id_bioguide for m in blue_dog_members}
+            
+            # Load Congressional Black Caucus members
+            cbc_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'CBC',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['congressional_black_caucus'] = {m.member_id_bioguide for m in cbc_members}
+            
+            # Load MAGA Republican members from database
+            maga_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'MAGA',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['maga_republicans'] = {m.member_id_bioguide for m in maga_members}
+            
+            print(f"DEBUG: Loaded CBC data with {len(caucus_data['congressional_black_caucus'])} members")
+            print(f"DEBUG: CBC members: {sorted(list(caucus_data['congressional_black_caucus']))}")
+            print(f"DEBUG: Loaded MAGA data with {len(caucus_data['maga_republicans'])} members")
+            print(f"DEBUG: MAGA members: {sorted(list(caucus_data['maga_republicans']))}")
+            print(f"DEBUG: load_caucus_data() returning CBC set: {caucus_data['congressional_black_caucus']}")
+            
     except Exception as e:
-        print(f"Error loading Freedom Caucus data: {e}")
-        caucus_data['freedom_caucus'] = set()
-    
-    # Load Progressive Caucus data
-    try:
-        progressive_caucus_file = 'cache/progressive_caucus_members.json'
-        if os.path.exists(progressive_caucus_file):
-            with open(progressive_caucus_file, 'r') as f:
-                data = json.load(f)
-                caucus_data['progressive_caucus'] = {member['bioguide_id'] for member in data.get('members', [])}
-        else:
-            caucus_data['progressive_caucus'] = set()
-    except Exception as e:
-        print(f"Error loading Progressive Caucus data: {e}")
-        caucus_data['progressive_caucus'] = set()
+        print(f"Error loading caucus data from database: {e}")
+        # Fallback to empty sets
+        caucus_data = {
+            'freedom_caucus': set(),
+            'progressive_caucus': set(),
+            'blue_dog_coalition': set(),
+            'congressional_black_caucus': set(),
+            'maga_republicans': set()
+        }
     
     return caucus_data
 
@@ -122,6 +152,15 @@ def get_members():
                 # Check caucus memberships
                 is_freedom_caucus = member.member_id_bioguide in caucus_data['freedom_caucus']
                 is_progressive_caucus = member.member_id_bioguide in caucus_data['progressive_caucus']
+                is_blue_dog_coalition = member.member_id_bioguide in caucus_data['blue_dog_coalition']
+                is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
+                is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
+                
+                # Debug logging for Kaptur
+                if member.first == 'Marcy' and member.last == 'Kaptur':
+                    print(f"DEBUG: Kaptur {member.member_id_bioguide} CBC check: {is_congressional_black_caucus}")
+                    print(f"DEBUG: CBC data contains: {member.member_id_bioguide in caucus_data['congressional_black_caucus']}")
+                    print(f"DEBUG: CBC set: {caucus_data['congressional_black_caucus']}")
                 
                 member_data.append({
                     'id': member.member_id_bioguide,
@@ -134,8 +173,14 @@ def get_members():
                     'cosponsor_count': cosponsor_count,
                     'start_date': member.start_date.isoformat() if member.start_date else None,
                     'is_freedom_caucus': is_freedom_caucus,
-                    'is_progressive_caucus': is_progressive_caucus
+                    'is_progressive_caucus': is_progressive_caucus,
+                    'is_blue_dog_coalition': is_blue_dog_coalition,
+                    'is_maga_republican': is_maga_republican,
+                    'is_congressional_black_caucus': is_congressional_black_caucus
                 })
+            
+            # Sort members by last name, then first name
+            member_data.sort(key=lambda x: (x['name'].split()[-1], x['name'].split()[0]))
             
             return jsonify(member_data)
     except Exception as e:
@@ -729,6 +774,9 @@ def get_member_details(bioguide_id):
             # Check caucus memberships
             is_freedom_caucus = member.member_id_bioguide in caucus_data['freedom_caucus']
             is_progressive_caucus = member.member_id_bioguide in caucus_data['progressive_caucus']
+            is_blue_dog_coalition = member.member_id_bioguide in caucus_data['blue_dog_coalition']
+            is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
+            is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
             
             return jsonify({
                 'member': {
@@ -742,7 +790,10 @@ def get_member_details(bioguide_id):
                     'chamber': 'House' if member.district else 'Senate',
                     'start_date': member.start_date.isoformat() if member.start_date else None,
                     'is_freedom_caucus': is_freedom_caucus,
-                    'is_progressive_caucus': is_progressive_caucus
+                    'is_progressive_caucus': is_progressive_caucus,
+                    'is_blue_dog_coalition': is_blue_dog_coalition,
+                    'is_maga_republican': is_maga_republican,
+                    'is_congressional_black_caucus': is_congressional_black_caucus
                 },
                 'voting_stats': {
                     'total_votes': total_votes,
@@ -835,6 +886,155 @@ def bill_details_page(bill_id):
     except Exception as e:
         print(f"/bill/<id> failed: {e}")
         return render_template('bill.html', error=str(e), bill=None, sponsor=None, cosponsors=[], rollcalls=[])
+
+# Caucus Management Routes
+@app.route('/caucus-management')
+def caucus_management_page():
+    """Render the caucus management page."""
+    return render_template('caucus_management.html')
+
+@app.route('/api/caucuses')
+def get_caucuses():
+    """Get all caucuses."""
+    try:
+        with get_db_session() as session:
+            caucuses = session.query(Caucus).filter(Caucus.is_active == True).all()
+            caucus_data = []
+            
+            for caucus in caucuses:
+                member_count = session.query(CaucusMembership).filter(
+                    CaucusMembership.caucus_id == caucus.id,
+                    CaucusMembership.end_date.is_(None)
+                ).count()
+                
+                caucus_data.append({
+                    'id': caucus.id,
+                    'name': caucus.name,
+                    'short_name': caucus.short_name,
+                    'description': caucus.description,
+                    'color': caucus.color,
+                    'icon': caucus.icon,
+                    'member_count': member_count
+                })
+            
+            return jsonify(caucus_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/caucuses/<int:caucus_id>')
+def get_caucus(caucus_id):
+    """Get a specific caucus by ID."""
+    try:
+        with get_db_session() as session:
+            caucus = session.query(Caucus).filter(Caucus.id == caucus_id).first()
+            if not caucus:
+                return jsonify({'error': 'Caucus not found'}), 404
+            
+            member_count = session.query(CaucusMembership).filter(
+                CaucusMembership.caucus_id == caucus.id,
+                CaucusMembership.end_date.is_(None)
+            ).count()
+            
+            return jsonify({
+                'id': caucus.id,
+                'name': caucus.name,
+                'short_name': caucus.short_name,
+                'description': caucus.description,
+                'color': caucus.color,
+                'icon': caucus.icon,
+                'member_count': member_count
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/caucuses/<int:caucus_id>/members')
+def get_caucus_members(caucus_id):
+    """Get all members of a specific caucus."""
+    try:
+        with get_db_session() as session:
+            memberships = session.query(CaucusMembership).join(Member).filter(
+                CaucusMembership.caucus_id == caucus_id,
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            
+            member_data = []
+            for membership in memberships:
+                member_data.append({
+                    'id': membership.id,
+                    'member_id_bioguide': membership.member_id_bioguide,
+                    'member_name': f"{membership.member.first} {membership.member.last}",
+                    'party': membership.member.party,
+                    'state': membership.member.state,
+                    'district': membership.member.district,
+                    'start_date': membership.start_date.isoformat() if membership.start_date else None,
+                    'notes': membership.notes
+                })
+            
+            # Sort caucus members by last name, then first name
+            member_data.sort(key=lambda x: (x['member_name'].split()[-1], x['member_name'].split()[0]))
+            
+            return jsonify(member_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/caucus-memberships', methods=['POST'])
+def create_caucus_membership():
+    """Create a new caucus membership."""
+    try:
+        data = request.get_json()
+        member_id_bioguide = data.get('member_id_bioguide')
+        caucus_id = data.get('caucus_id')
+        start_date = data.get('start_date')
+        notes = data.get('notes')
+        
+        if not all([member_id_bioguide, caucus_id]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        with get_db_session() as session:
+            # Check if membership already exists
+            existing = session.query(CaucusMembership).filter(
+                CaucusMembership.member_id_bioguide == member_id_bioguide,
+                CaucusMembership.caucus_id == caucus_id,
+                CaucusMembership.end_date.is_(None)
+            ).first()
+            
+            if existing:
+                return jsonify({'error': 'Member is already in this caucus'}), 400
+            
+            # Create new membership
+            start_date_obj = None
+            if start_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            
+            membership = CaucusMembership(
+                member_id_bioguide=member_id_bioguide,
+                caucus_id=caucus_id,
+                start_date=start_date_obj,
+                notes=notes
+            )
+            
+            session.add(membership)
+            session.commit()
+            
+            return jsonify({'message': 'Membership created successfully', 'id': membership.id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/caucus-memberships/<int:membership_id>', methods=['DELETE'])
+def delete_caucus_membership(membership_id):
+    """Delete a caucus membership (set end date to today)."""
+    try:
+        with get_db_session() as session:
+            membership = session.query(CaucusMembership).filter(CaucusMembership.id == membership_id).first()
+            if not membership:
+                return jsonify({'error': 'Membership not found'}), 404
+            
+            membership.end_date = date.today()
+            session.commit()
+            
+            return jsonify({'message': 'Membership ended successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

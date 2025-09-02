@@ -58,16 +58,28 @@ async function loadMembers() {
             
             // Create caucus badges with tooltips
             const freedomCaucusBadge = member.is_freedom_caucus ? 
-                '<span class="badge bg-warning text-dark ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus"><i class="fas fa-flag me-1"></i>FC</span>' : '';
-            const progressiveCaucusBadge = member.is_progressive_caucus ? 
-                '<span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-star me-1"></i>PC</span>' : '';
-            
-            row.innerHTML = `
-                <td>
-                    <a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a>
-                    ${freedomCaucusBadge}
-                    ${progressiveCaucusBadge}
-                </td>
+                '<span class="badge bg-warning text-dark ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus"><i class="fas fa-scale-unbalanced me-1"></i>FC</span>' : '';
+                            const progressiveCaucusBadge = member.is_progressive_caucus ? 
+                    '<span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-arrow-trend-up me-1"></i>PC</span>' : '';
+                
+                const blueDogCoalitionBadge = member.is_blue_dog_coalition ? 
+                    '<span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition Member"><i class="fas fa-dog me-1"></i>BD</span>' : '';
+                
+                const magaRepublicanBadge = member.is_maga_republican ? 
+                    '<span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republican"><i class="fas fa-biohazard me-1"></i>MAGA</span>' : '';
+                
+                const congressionalBlackCaucusBadge = member.is_congressional_black_caucus ? 
+                    '<span class="badge bg-dark text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus Member"><i class="fas fa-users me-1"></i>CBC</span>' : '';
+              
+                row.innerHTML = `
+                    <td>
+                        <a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a>
+                        ${freedomCaucusBadge}
+                        ${progressiveCaucusBadge}
+                        ${blueDogCoalitionBadge}
+                        ${magaRepublicanBadge}
+                        ${congressionalBlackCaucusBadge}
+                    </td>
                 <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
                 <td>${member.state}</td>
                 <td>${member.chamber}</td>
