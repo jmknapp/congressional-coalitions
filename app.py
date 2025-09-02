@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Flask web application for Congressional Coalition Analysis.
@@ -6,9 +7,11 @@ Flask web application for Congressional Coalition Analysis.
 import os
 import sys
 import json
+import unicodedata
 from datetime import datetime, date
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
+from flask_caching import Cache
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -16,7 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
@@ -92,6 +95,22 @@ def load_caucus_data():
 
 app = Flask(__name__)
 CORS(app)
+
+# Configure caching
+cache_config = {
+    'CACHE_TYPE': 'simple',  # In-memory cache
+    'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutes default timeout
+}
+app.config.update(cache_config)
+cache = Cache(app)
+
+def normalize_for_sorting(text):
+    """Remove accents and diacritics from text for consistent alphabetical sorting."""
+    # Normalize unicode characters (NFD = Canonical Decomposition)
+    normalized = unicodedata.normalize('NFD', text)
+    # Filter out diacritical marks (category 'Mn')
+    without_accents = ''.join(char for char in normalized if unicodedata.category(char) != 'Mn')
+    return without_accents
 
 # Note: Ideological profiles are now pre-calculated and cached for performance.
 # See scripts/precalcul
@@ -189,60 +208,111 @@ def get_members():
                     'is_true_blue_democrat': is_true_blue_democrat
                 })
             
-            # Sort members by last name, then first name
-            member_data.sort(key=lambda x: (x['name'].split()[-1], x['name'].split()[0]))
+            # Sort members by last name, then first name (ignoring accents)
+            member_data.sort(key=lambda x: (
+                normalize_for_sorting(x['name'].split()[-1]), 
+                normalize_for_sorting(x['name'].split()[0])
+            ))
             
             return jsonify(member_data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/bills')
+@cache.cached(timeout=300)  # Cache for 5 minutes
 def get_bills():
-    """Get House bills only with their details."""
+    """Get House bills only with their details - optimized with caching and efficient queries."""
     try:
         with get_db_session() as session:
-            # Filter for House bills only and order by last action date descending
-            bills = session.query(Bill).filter(Bill.chamber == 'house').all()
-            bill_data = []
+            # Single optimized query using JOINs to avoid N+1 problem
+            from sqlalchemy import func
             
-            for bill in bills:
-                # Get sponsor name
-                sponsor = session.query(Member).filter(Member.member_id_bioguide == bill.sponsor_bioguide).first()
-                sponsor_name = f"{sponsor.first} {sponsor.last}" if sponsor else "Unknown"
-                
-                # Get cosponsor count
-                cosponsor_count = session.query(Cosponsor).filter(Cosponsor.bill_id == bill.bill_id).count()
-                
-                # Get last action date and code
-                last_action = session.query(Action).filter(
-                    Action.bill_id == bill.bill_id
-                ).order_by(Action.action_date.desc()).first()
-                
-                last_action_date = None
-                last_action_code = None
-                if last_action:
-                    last_action_date = last_action.action_date.isoformat()
-                    last_action_code = last_action.action_code
+            # Subquery for cosponsor counts
+            cosponsor_subquery = session.query(
+                Cosponsor.bill_id,
+                func.count(Cosponsor.member_id_bioguide).label('cosponsor_count')
+            ).group_by(Cosponsor.bill_id).subquery()
+            
+            # Subquery for latest action per bill (with unique action per bill)
+            latest_action_subquery = session.query(
+                Action.bill_id,
+                Action.action_date,
+                Action.action_code,
+                func.row_number().over(
+                    partition_by=Action.bill_id,
+                    order_by=Action.action_date.desc()
+                ).label('rn')
+            ).subquery()
+            
+            # Filter to get only the most recent action per bill
+            latest_action_filtered = session.query(
+                latest_action_subquery.c.bill_id,
+                latest_action_subquery.c.action_date,
+                latest_action_subquery.c.action_code
+            ).filter(latest_action_subquery.c.rn == 1).subquery()
+            
+            # Main query with all JOINs
+            query = session.query(
+                Bill.bill_id,
+                Bill.title,
+                Bill.congress,
+                Bill.chamber,
+                Bill.number,
+                Bill.type,
+                Bill.introduced_date,
+                Member.first,
+                Member.last,
+                Member.party,
+                cosponsor_subquery.c.cosponsor_count,
+                latest_action_filtered.c.action_date,
+                latest_action_filtered.c.action_code
+            ).select_from(Bill)\
+            .outerjoin(Member, Bill.sponsor_bioguide == Member.member_id_bioguide)\
+            .outerjoin(cosponsor_subquery, Bill.bill_id == cosponsor_subquery.c.bill_id)\
+            .outerjoin(latest_action_filtered, Bill.bill_id == latest_action_filtered.c.bill_id)\
+            .filter(Bill.chamber == 'house')
+            
+            # Execute query and build response
+            bill_data = []
+            for row in query.all():
+                sponsor_name = f"{row.first} {row.last}" if row.first and row.last else "Unknown"
                 
                 bill_data.append({
-                    'id': bill.bill_id,
-                    'title': bill.title,
-                    'congress': bill.congress,
-                    'chamber': bill.chamber.title(),
-                    'number': bill.number,
-                    'type': bill.type.upper(),
+                    'id': row.bill_id,
+                    'title': row.title or '',
+                    'congress': row.congress,
+                    'chamber': row.chamber.title() if row.chamber else 'House',
+                    'number': row.number,
+                    'type': row.type.upper() if row.type else '',
                     'sponsor': sponsor_name,
-                    'sponsor_party': sponsor.party if sponsor else None,
-                    'cosponsor_count': cosponsor_count,
-                    'introduced_date': bill.introduced_date.isoformat() if bill.introduced_date else None,
-                    'last_action_date': last_action_date,
-                    'last_action_code': last_action_code
+                    'sponsor_party': row.party,
+                    'cosponsor_count': row.cosponsor_count or 0,
+                    'introduced_date': row.introduced_date.isoformat() if row.introduced_date else None,
+                    'last_action_date': row.action_date.isoformat() if row.action_date else None,
+                    'last_action_code': row.action_code
                 })
             
             # Sort bills by last action date descending (most recent first)
             bill_data.sort(key=lambda x: x['last_action_date'] or '1900-01-01', reverse=True)
             
-            return jsonify(bill_data)
+            # Add cache metadata
+            response_data = {
+                'bills': bill_data,
+                'cached': True,  # This will be False on first load, True on cached loads
+                'count': len(bill_data),
+                'cache_time': datetime.now().isoformat()
+            }
+            
+            return jsonify(response_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache/clear')
+def clear_cache():
+    """Clear all cached data - useful after data updates."""
+    try:
+        cache.clear()
+        return jsonify({'message': 'Cache cleared successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -681,6 +751,162 @@ def member_details_page(bioguide_id):
     """Member details page."""
     return render_template('member.html', bioguide_id=bioguide_id)
 
+@app.route('/explainer/party-line-votes')
+def party_line_explainer():
+    """Party line votes explainer page."""
+    return render_template('party_line_explainer.html')
+
+@app.route('/api/caucus/<int:caucus_id>/network')
+def get_caucus_network(caucus_id):
+    """Get network graph data for a specific caucus showing sponsor/cosponsor relationships."""
+    try:
+        with get_db_session() as session:
+            # Get caucus info
+            caucus = session.query(Caucus).filter(Caucus.id == caucus_id).first()
+            if not caucus:
+                return jsonify({'error': 'Caucus not found'}), 404
+            
+            # Get all caucus members
+            caucus_members = session.query(Member).join(
+                CaucusMembership, Member.member_id_bioguide == CaucusMembership.member_id_bioguide
+            ).filter(
+                CaucusMembership.caucus_id == caucus_id,
+                CaucusMembership.end_date.is_(None)  # Active memberships only
+            ).all()
+            
+            caucus_member_ids = {m.member_id_bioguide for m in caucus_members}
+            
+            # Get all sponsor/cosponsor relationships involving caucus members
+            # This includes both directions: caucus member as sponsor, and caucus member as cosponsor
+            sponsor_relationships = session.query(Bill, Cosponsor, Member).join(
+                Cosponsor, Bill.bill_id == Cosponsor.bill_id
+            ).join(
+                Member, Cosponsor.member_id_bioguide == Member.member_id_bioguide
+            ).filter(
+                or_(
+                    Bill.sponsor_bioguide.in_(caucus_member_ids),  # Caucus member is sponsor
+                    Cosponsor.member_id_bioguide.in_(caucus_member_ids)  # Caucus member is cosponsor
+                )
+            ).all()
+            
+            # Collect all unique members involved (caucus + distance 1)
+            all_member_ids = set(caucus_member_ids)
+            for bill, cosponsor, member in sponsor_relationships:
+                all_member_ids.add(bill.sponsor_bioguide)
+                all_member_ids.add(cosponsor.member_id_bioguide)
+            
+            # Get all involved members
+            all_members = session.query(Member).filter(
+                Member.member_id_bioguide.in_(all_member_ids)
+            ).all()
+            
+            # Create nodes
+            nodes = []
+            for member in all_members:
+                is_caucus_member = member.member_id_bioguide in caucus_member_ids
+                
+                # Different styling for caucus vs non-caucus members
+                if is_caucus_member:
+                    color = caucus.color if caucus.color else '#dc3545'  # Use caucus color or default red
+                    size = 25
+                    border_width = 3
+                else:
+                    # Color by party for non-caucus members
+                    if member.party == 'D':
+                        color = '#1f77b4'  # Blue
+                    elif member.party == 'R':
+                        color = '#ff7f0e'  # Orange
+                    else:
+                        color = '#2ca02c'  # Green
+                    size = 15
+                    border_width = 1
+                
+                nodes.append({
+                    'id': member.member_id_bioguide,
+                    'label': f"{member.first} {member.last}",
+                    'title': f"{member.first} {member.last} ({member.party}-{member.state})",
+                    'color': color,
+                    'size': size,
+                    'borderWidth': border_width,
+                    'party': member.party,
+                    'state': member.state,
+                    'district': member.district,
+                    'is_caucus_member': is_caucus_member
+                })
+            
+            # Create edges (sponsor -> cosponsor relationships)
+            edges = []
+            edge_counts = {}  # Track multiple relationships between same pair
+            
+            for bill, cosponsor, member in sponsor_relationships:
+                sponsor_id = bill.sponsor_bioguide
+                cosponsor_id = cosponsor.member_id_bioguide
+                
+                if sponsor_id != cosponsor_id:  # Avoid self-loops
+                    edge_key = f"{sponsor_id}-{cosponsor_id}"
+                    
+                    if edge_key not in edge_counts:
+                        edge_counts[edge_key] = {
+                            'count': 0,
+                            'bills': []
+                        }
+                    
+                    edge_counts[edge_key]['count'] += 1
+                    edge_counts[edge_key]['bills'].append({
+                        'id': bill.bill_id,
+                        'title': bill.title,
+                        'type': bill.type.upper(),
+                        'number': bill.number
+                    })
+            
+            # Create edge objects
+            for edge_key, edge_data in edge_counts.items():
+                sponsor_id, cosponsor_id = edge_key.split('-')
+                
+                # Edge width based on number of relationships
+                width = min(1 + edge_data['count'] * 0.5, 5)  # Cap at width 5
+                
+                edges.append({
+                    'from': sponsor_id,
+                    'to': cosponsor_id,
+                    'width': width,
+                    'value': edge_data['count'],
+                    'title': f"{edge_data['count']} sponsor/cosponsor relationship(s)",
+                    'bills': edge_data['bills'][:5]  # Limit to first 5 bills for tooltip
+                })
+            
+            return jsonify({
+                'caucus': {
+                    'id': caucus.id,
+                    'name': caucus.name,
+                    'short_name': caucus.short_name,
+                    'color': caucus.color
+                },
+                'nodes': nodes,
+                'edges': edges,
+                'stats': {
+                    'caucus_members': len(caucus_member_ids),
+                    'total_members': len(all_member_ids),
+                    'relationships': len(edges)
+                }
+            })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/caucus/<int:caucus_id>/network')
+def caucus_network_page(caucus_id):
+    """Render the caucus network visualization page."""
+    try:
+        with get_db_session() as session:
+            caucus = session.query(Caucus).filter(Caucus.id == caucus_id).first()
+            if not caucus:
+                return "Caucus not found", 404
+            
+            return render_template('caucus_network.html', caucus=caucus)
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 
 @app.route('/api/member/<bioguide_id>')
 def get_member_details(bioguide_id):
@@ -712,8 +938,10 @@ def get_member_details(bioguide_id):
                 Vote.vote_code == 'Present'
             ).count()
             
-            # Get sponsored bills
-            sponsored_bills = session.query(Bill).filter(Bill.sponsor_bioguide == bioguide_id).all()
+            # Get sponsored bills ordered by date introduced descending (most recent first)
+            sponsored_bills = session.query(Bill).filter(
+                Bill.sponsor_bioguide == bioguide_id
+            ).order_by(Bill.introduced_date.desc()).all()
             sponsored_bills_data = []
             for bill in sponsored_bills:
                 sponsored_bills_data.append({
@@ -905,6 +1133,42 @@ def caucus_management_page():
     """Render the caucus management page."""
     return render_template('caucus_management.html')
 
+@app.route('/caucus/<int:caucus_id>')
+def caucus_info_page(caucus_id):
+    """Render the caucus information page."""
+    try:
+        with get_db_session() as session:
+            caucus = session.query(Caucus).filter(Caucus.id == caucus_id).first()
+            if not caucus:
+                return render_template('caucus_info.html', error='Caucus not found', caucus=None, members=[])
+            
+            # Get active members of this caucus
+            memberships = session.query(CaucusMembership).join(Member).filter(
+                CaucusMembership.caucus_id == caucus_id,
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            
+            members_data = []
+            for membership in memberships:
+                member = membership.member
+                members_data.append({
+                    'id': member.member_id_bioguide,
+                    'name': f"{member.first} {member.last}",
+                    'party': member.party,
+                    'state': member.state,
+                    'district': member.district,
+                    'start_date': membership.start_date.isoformat() if membership.start_date else None,
+                    'notes': membership.notes
+                })
+            
+            # Sort members by last name, then first name
+            members_data.sort(key=lambda x: (x['name'].split()[-1], x['name'].split()[0]))
+            
+            return render_template('caucus_info.html', caucus=caucus, members=members_data)
+            
+    except Exception as e:
+        return render_template('caucus_info.html', error=str(e), caucus=None, members=[])
+
 @app.route('/api/caucuses')
 def get_caucuses():
     """Get all caucuses."""
@@ -982,8 +1246,11 @@ def get_caucus_members(caucus_id):
                     'notes': membership.notes
                 })
             
-            # Sort caucus members by last name, then first name
-            member_data.sort(key=lambda x: (x['member_name'].split()[-1], x['member_name'].split()[0]))
+            # Sort caucus members by last name, then first name (ignoring accents)
+            member_data.sort(key=lambda x: (
+                normalize_for_sorting(x['member_name'].split()[-1]), 
+                normalize_for_sorting(x['member_name'].split()[0])
+            ))
             
             return jsonify(member_data)
     except Exception as e:

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Party Line Votes Explained - Congressional Coalitions</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-university me-2"></i>
+                Congressional Coalition Analysis
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <!-- Header -->
+                <div class="card mb-4">
+                    <div class="card-header bg-success text-white">
+                        <h3 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Party Line Votes Explained
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="lead">
+                            Understanding how we measure congressional voting behavior and party loyalty.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Definition -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-bookmark me-2"></i>What are Party Line Votes?</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            <strong>Party Line Votes</strong> are votes where a member of Congress votes in alignment with the majority position of their political party on a particular roll call vote.
+                        </p>
+                        
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-calculator me-2"></i>How We Calculate It</h6>
+                            <p class="mb-0">
+                                <strong>Party Line Percentage = </strong> (Number of votes with party majority ÷ Total votes) × 100
+                            </p>
+                        </div>
+
+                        <h6>Examples:</h6>
+                        <ul>
+                            <li><strong>Republican Party Line Vote:</strong> When most Republicans vote "Yea" and a Republican member also votes "Yea"</li>
+                            <li><strong>Democratic Party Line Vote:</strong> When most Democrats vote "Nay" and a Democratic member also votes "Nay"</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- What It Means -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-lightbulb me-2"></i>What Does This Metric Tell Us?</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-success">High Party Line Percentage (80%+)</h6>
+                                <ul>
+                                    <li>Strong party loyalty</li>
+                                    <li>Reliable party member</li>
+                                    <li>Follows party leadership</li>
+                                    <li>May indicate party discipline</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-warning">Lower Party Line Percentage (60% or below)</h6>
+                                <ul>
+                                    <li>More independent voting</li>
+                                    <li>May represent swing districts</li>
+                                    <li>Could indicate moderation</li>
+                                    <li>May vote on local interests</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Context -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-line me-2"></i>Important Context</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-warning">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>Not a Value Judgment</h6>
+                            <p class="mb-0">
+                                High or low party line voting is neither inherently good nor bad. It depends on various factors including district preferences, personal principles, and the specific issues being voted on.
+                            </p>
+                        </div>
+
+                        <h6>Factors Affecting Party Line Voting:</h6>
+                        <ul>
+                            <li><strong>District Composition:</strong> Members from competitive districts may vote more independently</li>
+                            <li><strong>Seniority:</strong> More senior members may have more freedom to break from party</li>
+                            <li><strong>Committee Roles:</strong> Committee chairs may vote based on expertise rather than party position</li>
+                            <li><strong>Issue Complexity:</strong> Some votes may genuinely divide parties internally</li>
+                            <li><strong>Local Interests:</strong> Members may prioritize their constituents' needs over party positions</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Related Metrics -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-link me-2"></i>Related Metrics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-primary">Cross-Party Votes</h6>
+                                <p>Votes where a member votes with the opposing party's majority position. This is the inverse perspective of party line voting.</p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-info">Ideological Score</h6>
+                                <p>A composite measure that considers both party line voting and cross-party voting to place members on a spectrum from very liberal to very conservative.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Source -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-database me-2"></i>Data Source & Methodology</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>
+                            Our party line voting calculations are based on official roll call votes from the U.S. House of Representatives. We analyze each vote to determine the majority position for Democrats and Republicans, then calculate how often each member aligns with their party's majority.
+                        </p>
+                        
+                        <div class="alert alert-secondary">
+                            <h6><i class="fas fa-clock me-2"></i>Data Freshness</h6>
+                            <p class="mb-0">
+                                Voting data is updated regularly as new roll call votes occur. Percentages may change as members cast additional votes throughout the congressional session.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Back Button -->
+                <div class="text-center">
+                    <button onclick="window.close()" class="btn btn-primary me-2">
+                        <i class="fas fa-times me-2"></i>Close Window
+                    </button>
+                    <a href="/" class="btn btn-outline-primary">
+                        <i class="fas fa-home me-2"></i>Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+

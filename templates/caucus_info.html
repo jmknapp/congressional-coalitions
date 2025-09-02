@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ caucus.name if caucus else 'Caucus Information' }} - Congressional Coalitions</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-university me-2"></i>
+                Congressional Coalition Analysis
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/caucus-management">
+                    <i class="fas fa-users-cog me-1"></i>Caucus Management
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% if error %}
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+            </div>
+        {% elif caucus %}
+            <!-- Caucus Header -->
+            <div class="card mb-4">
+                <div class="card-header" style="background-color: {{ caucus.color }}; color: white;">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h3 class="mb-0">
+                                <i class="{{ caucus.icon }} me-2"></i>
+                                {{ caucus.name }}
+                            </h3>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <span class="badge bg-light text-dark fs-6">
+                                {{ members|length }} Members
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <p class="mb-2"><strong>Description:</strong> {{ caucus.description }}</p>
+                            <p class="mb-2"><strong>Short Name:</strong> {{ caucus.short_name }}</p>
+                            <p class="mb-0"><strong>Status:</strong> 
+                                <span class="badge bg-success">Active</span>
+                            </p>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-grid gap-2">
+                                <a href="/caucus/{{ caucus.id }}/network" class="btn btn-primary">
+                                    <i class="fas fa-project-diagram me-2"></i>View Network Graph
+                                </a>
+                                <a href="/caucus-management" class="btn btn-outline-primary">
+                                    <i class="fas fa-edit me-2"></i>Manage Members
+                                </a>
+                                <button class="btn btn-outline-secondary" onclick="window.print()">
+                                    <i class="fas fa-print me-2"></i>Print Page
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Members List -->
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-users me-2"></i>Caucus Members</h5>
+                </div>
+                <div class="card-body">
+                    {% if members %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Party</th>
+                                        <th>State</th>
+                                        <th>District</th>
+                                        <th>Member Since</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for member in members %}
+                                        <tr>
+                                            <td>
+                                                <a href="/member/{{ member.id }}" target="_blank" rel="noopener noreferrer">
+                                                    {{ member.name }}
+                                                </a>
+                                            </td>
+                                            <td>
+                                                <span class="party-badge party-{{ member.party.lower() }}">
+                                                    {{ member.party }}
+                                                </span>
+                                            </td>
+                                            <td>{{ member.state }}</td>
+                                            <td>{{ member.district if member.district else 'At-Large' }}</td>
+                                            <td>
+                                                {% if member.start_date %}
+                                                    {{ member.start_date }}
+                                                {% else %}
+                                                    <span class="text-muted">Unknown</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if member.notes %}
+                                                    {{ member.notes }}
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Active Members</h5>
+                            <p class="text-muted">This caucus currently has no active members.</p>
+                            <a href="/caucus-management" class="btn btn-primary">
+                                <i class="fas fa-plus me-2"></i>Add Members
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="row mt-4">
+                <div class="col-md-4">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                            <h5 class="card-title">{{ members|selectattr('party', 'equalto', 'D')|list|length }}</h5>
+                            <p class="card-text">Democrats</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-users fa-2x text-danger mb-2"></i>
+                            <h5 class="card-title">{{ members|selectattr('party', 'equalto', 'R')|list|length }}</h5>
+                            <p class="card-text">Republicans</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-map-marker-alt fa-2x text-success mb-2"></i>
+                            <h5 class="card-title">{{ members|map(attribute='state')|unique|list|length }}</h5>
+                            <p class="card-text">States Represented</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -82,19 +82,19 @@ function displayMembers(members) {
     members.forEach(member => {
         const row = document.createElement('tr');
         
-        // Create caucus badges with tooltips
+        // Create caucus badges with clickable links to caucus info pages
         const freedomCaucusBadge = member.is_freedom_caucus ? 
-            '<span class="badge fc-pink-badge ms-2" style="background: #e91e63 !important; color: white !important; border: 2px solid #e91e63 !important;" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus PINK TEST"><i class="fas fa-scale-unbalanced me-1"></i>FC</span>' : '';
+            '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge ms-2" style="background: #e91e63 !important; color: white !important; border: 2px solid #e91e63 !important;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>' : '';
         const progressiveCaucusBadge = member.is_progressive_caucus ? 
-            '<span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-arrow-trend-up me-1"></i>PC</span>' : '';
+            '<a href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Progressive Caucus information"><i class="fas fa-arrow-trend-up me-1"></i>PC</span></a>' : '';
         const blueDogCoalitionBadge = member.is_blue_dog_coalition ? 
-            '<span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition Member"><i class="fas fa-dog me-1"></i>BD</span>' : '';
+            '<a href="/caucus/3" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Blue Dog Coalition information"><i class="fas fa-dog me-1"></i>BD</span></a>' : '';
         const magaRepublicanBadge = member.is_maga_republican ? 
-            '<span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republican"><i class="fas fa-biohazard me-1"></i>MAGA</span>' : '';
+            '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view MAGA Republicans information"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>' : '';
         const congressionalBlackCaucusBadge = member.is_congressional_black_caucus ? 
-            '<span class="badge bg-dark text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus Member"><i class="fas fa-users me-1"></i>CBC</span>' : '';
+            '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-dark text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
         const trueBlueDemocratsBadge = member.is_true_blue_democrat ? 
-            '<span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="True Blue Democrat"><i class="fas fa-heart me-1"></i>TB</span>' : '';
+            '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information"><i class="fas fa-heart me-1"></i>TB</span></a>' : '';
 
         row.innerHTML = `
             <td>
@@ -108,7 +108,6 @@ function displayMembers(members) {
             </td>
             <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
             <td>${member.state}</td>
-            <td>${member.chamber}</td>
             <td>${member.vote_count}</td>
         `;
         tbody.appendChild(row);
@@ -137,10 +136,26 @@ function filterMembersByParty(party) {
 // Load bills data
 async function loadBills() {
     try {
-        const response = await fetch('/api/bills');
-        const bills = await response.json();
+        // Show spinner, hide table
+        const spinner = document.getElementById('bills-loading-spinner');
+        const tableContainer = document.getElementById('bills-table-container');
         
-        console.log('Bills loaded:', bills.length, 'bills');
+        if (spinner) spinner.style.display = 'block';
+        if (tableContainer) tableContainer.style.display = 'none';
+        
+        const response = await fetch('/api/bills');
+        const data = await response.json();
+        
+        // Handle new response format with cache metadata
+        let bills;
+        if (data.bills) {
+            bills = data.bills;
+            console.log(`Bills loaded: ${data.count} bills (cached: ${data.cached}, cache_time: ${data.cache_time})`);
+        } else {
+            // Fallback for old format
+            bills = data;
+            console.log('Bills loaded:', bills.length, 'bills');
+        }
         
         const tbody = document.getElementById('bills-tbody');
         if (!tbody) {
@@ -171,7 +186,6 @@ async function loadBills() {
                 <td><strong><a href="${billHref}" target="_blank" rel="noopener noreferrer">${bill.type} ${bill.number}</a></strong></td>
                 <td>${(bill.title || '').substring(0, 50)}${(bill.title || '').length > 50 ? '...' : ''}</td>
                 <td>${bill.sponsor}</td>
-                <td>${bill.chamber}</td>
                 <td>${bill.cosponsor_count}</td>
             `;
             tbody.appendChild(row);
@@ -179,8 +193,25 @@ async function loadBills() {
         
         console.log('Bills table populated with', bills.length, 'rows');
         
+        // Hide spinner, show table
+        if (spinner) spinner.style.display = 'none';
+        if (tableContainer) tableContainer.style.display = 'block';
+        
     } catch (error) {
         console.error('Error loading bills:', error);
+        
+        // Hide spinner on error and show error message
+        const spinner = document.getElementById('bills-loading-spinner');
+        const tableContainer = document.getElementById('bills-table-container');
+        
+        if (spinner) {
+            spinner.innerHTML = `
+                <div class="text-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error loading bills: ${error.message}
+                </div>
+            `;
+        }
     }
 }
 

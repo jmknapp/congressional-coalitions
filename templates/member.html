@@ -45,26 +45,53 @@
                     <div class="card">
                         <div class="card-body">
                             <div class="row align-items-center">
-                                <div class="col-md-8">
+                                <div class="col-md-2 text-center">
+                                    <div class="member-photo-container">
+                                        <img id="member-photo" class="img-fluid rounded-circle border" 
+                                             style="width: 120px; height: 120px; object-fit: cover;" 
+                                             alt="Member Photo" 
+                                             onerror="this.style.display='none'; document.getElementById('photo-placeholder').style.display='block';">
+                                        <div id="photo-placeholder" class="bg-light rounded-circle border d-flex align-items-center justify-content-center" 
+                                             style="width: 120px; height: 120px; display: none;">
+                                            <i class="fas fa-user fa-3x text-muted"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
                                     <h2 id="member-name" class="mb-2"></h2>
                                     <div class="d-flex align-items-center mb-2">
                                         <span id="member-party-badge" class="party-badge me-3"></span>
                                         <span id="member-chamber" class="text-muted me-3"></span>
-                                                        <span id="freedom-caucus-badge" class="badge me-2" style="display: none; background-color: #e91e63; color: white;" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus">
-                    <i class="fas fa-scale-unbalanced me-1"></i>Freedom Caucus
-                </span>
-                <span id="progressive-caucus-badge" class="badge bg-info text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus">
-                    <i class="fas fa-arrow-trend-up me-1"></i>Progressive Caucus
-                </span>
-                <span id="blue-dog-coalition-badge" class="badge bg-primary text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition">
-                    <i class="fas fa-dog me-1"></i>Blue Dog Coalition
-                </span>
-                <span id="maga-republican-badge" class="badge bg-danger text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republican">
-                    <i class="fas fa-biohazard me-1"></i>MAGA
-                </span>
-                <span id="congressional-black-caucus-badge" class="badge bg-dark text-white me-2" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus">
-                    <i class="fas fa-users me-1"></i>CBC
-                </span>
+                                                        <a id="freedom-caucus-link" href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge me-2" style="background-color: #e91e63; color: white;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information">
+                        <i class="fas fa-scale-unbalanced me-1"></i>Freedom Caucus
+                    </span>
+                </a>
+                <a id="progressive-caucus-link" href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge bg-info text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Progressive Caucus information">
+                        <i class="fas fa-arrow-trend-up me-1"></i>Progressive Caucus
+                    </span>
+                </a>
+                <a id="blue-dog-coalition-link" href="/caucus/3" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge bg-info text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Blue Dog Coalition information">
+                        <i class="fas fa-dog me-1"></i>Blue Dog Coalition
+                    </span>
+                </a>
+                <a id="maga-republican-link" href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge bg-danger text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view MAGA Republicans information">
+                        <i class="fas fa-biohazard me-1"></i>MAGA
+                    </span>
+                </a>
+                <a id="congressional-black-caucus-link" href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge bg-dark text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information">
+                        <i class="fas fa-users me-1"></i>CBC
+                    </span>
+                </a>
+                <a id="true-blue-democrat-link" href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge bg-primary text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information">
+                        <i class="fas fa-heart me-1"></i>True Blue Democrat
+                    </span>
+                </a>
                                     </div>
                                     <p id="member-details" class="text-muted mb-0"></p>
                                 </div>
@@ -179,13 +206,21 @@
                                             <div class="col-6">
                                                 <div class="text-center">
                                                     <h4 id="party-line-percentage" class="text-success mb-1">-</h4>
-                                                    <small class="text-muted">Party Line Votes</small>
+                                                    <small class="text-muted">
+                                                        <a href="/explainer/party-line-votes" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-muted">
+                                                            Party Line Votes <i class="fas fa-external-link-alt fa-xs"></i>
+                                                        </a>
+                                                    </small>
                                                 </div>
                                             </div>
                                             <div class="col-6">
                                                 <div class="text-center">
                                                     <h4 id="cross-party-percentage" class="text-warning mb-1">-</h4>
-                                                    <small class="text-muted">Cross-Party Votes</small>
+                                                    <small class="text-muted">
+                                                        <a href="/explainer/party-line-votes" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-muted">
+                                                            Cross-Party Votes <i class="fas fa-external-link-alt fa-xs"></i>
+                                                        </a>
+                                                    </small>
                                                 </div>
                                             </div>
                                         </div>
@@ -304,44 +339,57 @@
             document.getElementById('member-party-badge').className = `party-badge party-${member.party.toLowerCase()}`;
             document.getElementById('member-chamber').textContent = member.chamber;
             
+            // Member photo - using official bioguide photos
+            const memberPhoto = document.getElementById('member-photo');
+            const photoUrl = `https://bioguide.congress.gov/bioguide/photo/${member.id.charAt(0)}/${member.id}.jpg`;
+            memberPhoto.src = photoUrl;
+            
             // Freedom Caucus badge
-            const freedomCaucusBadge = document.getElementById('freedom-caucus-badge');
+            const freedomCaucusLink = document.getElementById('freedom-caucus-link');
             if (member.is_freedom_caucus) {
-                freedomCaucusBadge.style.display = 'inline-block';
+                freedomCaucusLink.style.display = 'inline-block';
             } else {
-                freedomCaucusBadge.style.display = 'none';
+                freedomCaucusLink.style.display = 'none';
             }
             
             // Progressive Caucus badge
-            const progressiveCaucusBadge = document.getElementById('progressive-caucus-badge');
+            const progressiveCaucusLink = document.getElementById('progressive-caucus-link');
             if (member.is_progressive_caucus) {
-                progressiveCaucusBadge.style.display = 'inline-block';
+                progressiveCaucusLink.style.display = 'inline-block';
             } else {
-                progressiveCaucusBadge.style.display = 'none';
+                progressiveCaucusLink.style.display = 'none';
             }
             
             // Blue Dog Coalition badge
-            const blueDogCoalitionBadge = document.getElementById('blue-dog-coalition-badge');
+            const blueDogCoalitionLink = document.getElementById('blue-dog-coalition-link');
             if (member.is_blue_dog_coalition) {
-                blueDogCoalitionBadge.style.display = 'inline-block';
+                blueDogCoalitionLink.style.display = 'inline-block';
             } else {
-                blueDogCoalitionBadge.style.display = 'none';
+                blueDogCoalitionLink.style.display = 'none';
             }
             
             // MAGA Republican badge
-            const magaRepublicanBadge = document.getElementById('maga-republican-badge');
+            const magaRepublicanLink = document.getElementById('maga-republican-link');
             if (member.is_maga_republican) {
-                magaRepublicanBadge.style.display = 'inline-block';
+                magaRepublicanLink.style.display = 'inline-block';
             } else {
-                magaRepublicanBadge.style.display = 'none';
+                magaRepublicanLink.style.display = 'none';
             }
             
             // Congressional Black Caucus badge
-            const congressionalBlackCaucusBadge = document.getElementById('congressional-black-caucus-badge');
+            const congressionalBlackCaucusLink = document.getElementById('congressional-black-caucus-link');
             if (member.is_congressional_black_caucus) {
-                congressionalBlackCaucusBadge.style.display = 'inline-block';
+                congressionalBlackCaucusLink.style.display = 'inline-block';
             } else {
-                congressionalBlackCaucusBadge.style.display = 'none';
+                congressionalBlackCaucusLink.style.display = 'none';
+            }
+            
+            // True Blue Democrat badge
+            const trueBlueDemocratLink = document.getElementById('true-blue-democrat-link');
+            if (member.is_true_blue_democrat) {
+                trueBlueDemocratLink.style.display = 'inline-block';
+            } else {
+                trueBlueDemocratLink.style.display = 'none';
             }
             
             // Initialize tooltips for caucus badges
