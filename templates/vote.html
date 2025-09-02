@@ -6,12 +6,12 @@
     <title>Vote {{ rollcall.rollcall_id if rollcall else '' }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="/static/css/style.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=2024010304" rel="stylesheet">
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
-        <a class="navbar-brand" href="/">Congressional Coalition Analysis</a>
+        <a class="navbar-brand" href="/">119th Congress Analysis</a>
     </div>
 </nav>
 <div class="container mt-4">
@@ -50,17 +50,49 @@
                 {% endif %}
             </div>
             <div class="card-body">
+                <!-- Party Filter Dropdown -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="party-filter" class="form-label">Filter by Party:</label>
+                        <select id="party-filter" class="form-select" onchange="filterVotesByParty()">
+                            <option value="all">All Members</option>
+                            <option value="D">Democratic Members</option>
+                            <option value="R">Republican Members</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <div id="filtered-vote-summary" class="mt-4" style="display: none;">
+                            <small class="text-muted">Filtered Results:</small>
+                            <div class="mt-1">
+                                <span class="badge bg-success me-2" id="filtered-yea">Yea: 0</span>
+                                <span class="badge bg-danger me-2" id="filtered-nay">Nay: 0</span>
+                                <span class="badge bg-warning me-2" id="filtered-present">Present: 0</span>
+                                <span class="badge bg-secondary me-2" id="filtered-not-voting">Not Voting: 0</span>
+                                <span class="badge bg-primary" id="filtered-total">Total: 0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
                         <tr>
-                            <th>Member</th>
-                            <th>Party</th>
-                            <th>State</th>
-                            <th>Vote</th>
+                            <th style="cursor: pointer;" onclick="sortTable('member')" data-sort="member">
+                                Member <i id="sort-icon-member" class="fas fa-sort text-muted"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable('party')" data-sort="party">
+                                Party <i id="sort-icon-party" class="fas fa-sort text-muted"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable('state')" data-sort="state">
+                                State <i id="sort-icon-state" class="fas fa-sort text-muted"></i>
+                            </th>
+                            <th style="cursor: pointer;" onclick="sortTable('vote')" data-sort="vote">
+                                Vote <i id="sort-icon-vote" class="fas fa-sort text-muted"></i>
+                            </th>
                         </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="votes-tbody">
                         {% for v in votes %}
                             <tr>
                                 <td>
@@ -73,7 +105,12 @@
                                              data-bs-placement="right"
                                              data-bs-html="true"
                                              data-bs-title="<img src='/api/member-image/{{ v.member_id }}' alt='{{ v.member_name }}' style='width: 120px; height: 120px; object-fit: cover; border-radius: 8px;'><br><strong>{{ v.member_name }}</strong><br><small>{{ v.party }} - {{ v.state }}{{ v.district if v.district else '' }}</small>">
-                                        <a href="/member/{{ v.member_id }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">{{ v.member_name }}</a>
+                                        <div class="d-flex align-items-center flex-wrap">
+                                            <a href="/member/{{ v.member_id }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none me-2">{{ v.member_name }}</a>
+                                            <div class="d-flex flex-wrap" data-member-id="{{ v.member_id }}">
+                                                <!-- Caucus badges will be populated by JavaScript -->
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                                 <td><span class="party-badge party-{{ v.party|lower }}">{{ v.party }}</span></td>
@@ -90,8 +127,17 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Initialize Bootstrap tooltips for member thumbnails
+    // Store all vote rows for filtering
+    let allVoteRows = [];
+    let membersData = {};
+    let currentSort = {
+        column: null,
+        direction: 'asc'
+    };
+    
+    // Initialize page
     document.addEventListener('DOMContentLoaded', function() {
+        // Initialize Bootstrap tooltips for member thumbnails
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl, {
@@ -99,7 +145,237 @@
                 trigger: 'hover focus'
             });
         });
+        
+        // Store all vote rows for filtering
+        const tbody = document.getElementById('votes-tbody');
+        allVoteRows = Array.from(tbody.children);
+        
+        // Load member data for caucus badges
+        loadMemberDataAndBadges();
     });
+    
+    // Load member data to populate caucus badges
+    async function loadMemberDataAndBadges() {
+        try {
+            const response = await fetch('/api/members');
+            const members = await response.json();
+            
+            // Create lookup by member ID
+            members.forEach(member => {
+                membersData[member.id] = member;
+            });
+            
+            // Populate caucus badges for all members
+            populateCaucusBadges();
+            
+        } catch (error) {
+            console.error('Error loading member data:', error);
+        }
+    }
+    
+    // Populate caucus badges for members
+    function populateCaucusBadges() {
+        const badgeContainers = document.querySelectorAll('[data-member-id]');
+        
+        badgeContainers.forEach(container => {
+            const memberId = container.getAttribute('data-member-id');
+            const member = membersData[memberId];
+            
+            if (!member) return;
+            
+            let badges = '';
+            
+            // Freedom Caucus badge
+            if (member.is_freedom_caucus) {
+                badges += '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>';
+            }
+            
+            // Progressive Caucus badge
+            if (member.is_progressive_caucus) {
+                badges += '<a href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-arrow-trend-up me-1"></i>PC</span></a>';
+            }
+            
+            // Blue Dog Coalition badge
+            if (member.is_blue_dog_coalition) {
+                badges += '<a href="/caucus/3" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition"><i class="fas fa-dog me-1"></i>BD</span></a>';
+            }
+            
+            // MAGA Republican badge
+            if (member.is_maga_republican) {
+                badges += '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republicans"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>';
+            }
+            
+            // Congressional Black Caucus badge
+            if (member.is_congressional_black_caucus) {
+                badges += '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus"><i class="fas fa-users me-1"></i>CBC</span></a>';
+            }
+            
+            // True Blue Democrats badge
+            if (member.is_true_blue_democrat) {
+                badges += '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="True Blue Democrats"><i class="fas fa-heart me-1"></i>TB</span></a>';
+            }
+            
+            container.innerHTML = badges;
+        });
+        
+        // Re-initialize tooltips for new badges
+        initializeTooltips();
+    }
+    
+    // Helper function to initialize tooltips
+    function initializeTooltips() {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function(tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl, {
+                delay: { show: 200, hide: 100 },
+                trigger: 'hover focus'
+            });
+        });
+    }
+    
+    // Sort table by column
+    function sortTable(column) {
+        const tbody = document.getElementById('votes-tbody');
+        const currentRows = Array.from(tbody.children);
+        
+        // Determine sort direction
+        if (currentSort.column === column) {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort.direction = 'asc';
+            currentSort.column = column;
+        }
+        
+        // Clear all sort icons
+        document.querySelectorAll('[id^="sort-icon-"]').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+        
+        // Update current sort icon
+        const sortIcon = document.getElementById(`sort-icon-${column}`);
+        if (currentSort.direction === 'asc') {
+            sortIcon.className = 'fas fa-sort-up text-primary';
+        } else {
+            sortIcon.className = 'fas fa-sort-down text-primary';
+        }
+        
+        // Sort rows
+        currentRows.sort((a, b) => {
+            let valueA, valueB;
+            
+            switch (column) {
+                case 'member':
+                    // Get member name from the link text
+                    valueA = a.querySelector('a').textContent.trim().toLowerCase();
+                    valueB = b.querySelector('a').textContent.trim().toLowerCase();
+                    break;
+                    
+                case 'party':
+                    // Get party from party badge
+                    valueA = a.querySelector('.party-badge').textContent.trim();
+                    valueB = b.querySelector('.party-badge').textContent.trim();
+                    break;
+                    
+                case 'state':
+                    // Get state from third column
+                    valueA = a.children[2].textContent.trim();
+                    valueB = b.children[2].textContent.trim();
+                    break;
+                    
+                case 'vote':
+                    // Get vote from vote badge - sort by vote type with custom order
+                    const voteA = a.querySelector('.vote-badge').textContent.trim();
+                    const voteB = b.querySelector('.vote-badge').textContent.trim();
+                    
+                    // Define vote order: Yea, Nay, Present, Not Voting
+                    const voteOrder = { 'Yea': 1, 'Nay': 2, 'Present': 3, 'Not Voting': 4 };
+                    valueA = voteOrder[voteA] || 5;
+                    valueB = voteOrder[voteB] || 5;
+                    break;
+                    
+                default:
+                    return 0;
+            }
+            
+            // Compare values
+            let comparison = 0;
+            if (valueA > valueB) {
+                comparison = 1;
+            } else if (valueA < valueB) {
+                comparison = -1;
+            }
+            
+            // Reverse if descending
+            return currentSort.direction === 'desc' ? comparison * -1 : comparison;
+        });
+        
+        // Clear tbody and add sorted rows
+        tbody.innerHTML = '';
+        currentRows.forEach(row => tbody.appendChild(row));
+        
+        // Re-initialize tooltips
+        initializeTooltips();
+    }
+    
+    function filterVotesByParty() {
+        const selectedParty = document.getElementById('party-filter').value;
+        const tbody = document.getElementById('votes-tbody');
+        const summaryDiv = document.getElementById('filtered-vote-summary');
+        
+        // Clear current table
+        tbody.innerHTML = '';
+        
+        // Filter and count votes
+        let filteredRows = [];
+        let voteCounts = {
+            yea: 0,
+            nay: 0,
+            present: 0,
+            not_voting: 0,
+            total: 0
+        };
+        
+        allVoteRows.forEach(row => {
+            const partyBadge = row.querySelector('.party-badge');
+            const voteBadge = row.querySelector('.vote-badge');
+            
+            if (!partyBadge || !voteBadge) return;
+            
+            const memberParty = partyBadge.textContent.trim();
+            const voteType = voteBadge.textContent.trim().toLowerCase().replace(' ', '_');
+            
+            // Include row if party matches filter or showing all
+            if (selectedParty === 'all' || memberParty === selectedParty) {
+                filteredRows.push(row);
+                
+                // Count votes
+                if (voteType === 'yea') voteCounts.yea++;
+                else if (voteType === 'nay') voteCounts.nay++;
+                else if (voteType === 'present') voteCounts.present++;
+                else if (voteType === 'not_voting') voteCounts.not_voting++;
+                
+                voteCounts.total++;
+            }
+        });
+        
+        // Add filtered rows back to table
+        filteredRows.forEach(row => tbody.appendChild(row));
+        
+        // Update filtered summary
+        if (selectedParty !== 'all') {
+            document.getElementById('filtered-yea').textContent = `Yea: ${voteCounts.yea}`;
+            document.getElementById('filtered-nay').textContent = `Nay: ${voteCounts.nay}`;
+            document.getElementById('filtered-present').textContent = `Present: ${voteCounts.present}`;
+            document.getElementById('filtered-not-voting').textContent = `Not Voting: ${voteCounts.not_voting}`;
+            document.getElementById('filtered-total').textContent = `Total: ${voteCounts.total}`;
+            summaryDiv.style.display = 'block';
+        } else {
+            summaryDiv.style.display = 'none';
+        }
+        
+        // Re-initialize tooltips for filtered results
+        initializeTooltips();
+    }
 </script>
 </body>
 </html>

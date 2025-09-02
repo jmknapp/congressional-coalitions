@@ -139,6 +139,66 @@ body {
     min-width: 80px !important;
 }
 
+/* Analysis section recent bills table - Bill ID column width */
+#analysis-content .table th:first-child,
+#analysis-content .table td:first-child {
+    width: 120px !important;
+    max-width: 120px !important;
+    min-width: 120px !important;
+}
+
+/* Analysis section recent bills table - Introduced Date column width */
+#analysis-content .table th:nth-child(3),
+#analysis-content .table td:nth-child(3) {
+    width: 120px !important;
+    max-width: 120px !important;
+    min-width: 120px !important;
+}
+
+/* Roll calls table column widths - prevent title squashing */
+#rollcalls-table th:nth-child(1),
+#rollcalls-table td:nth-child(1) {
+    width: 100px !important;
+    max-width: 100px !important;
+    min-width: 100px !important;
+}
+
+/* Question/Title column - give it more space */
+#rollcalls-table th:nth-child(2),
+#rollcalls-table td:nth-child(2) {
+    width: 40% !important;
+    min-width: 200px !important;
+}
+
+/* Date column */
+#rollcalls-table th:nth-child(3),
+#rollcalls-table td:nth-child(3) {
+    width: 100px !important;
+    max-width: 100px !important;
+    min-width: 100px !important;
+}
+
+/* Vote count columns (Yea, Nay, Present) */
+#rollcalls-table th:nth-child(4),
+#rollcalls-table td:nth-child(4),
+#rollcalls-table th:nth-child(5),
+#rollcalls-table td:nth-child(5),
+#rollcalls-table th:nth-child(6),
+#rollcalls-table td:nth-child(6) {
+    width: 60px !important;
+    max-width: 60px !important;
+    min-width: 60px !important;
+    text-align: center;
+}
+
+/* Actions column */
+#rollcalls-table th:nth-child(7),
+#rollcalls-table td:nth-child(7) {
+    width: 100px !important;
+    max-width: 100px !important;
+    min-width: 100px !important;
+}
+
 .btn-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -249,10 +309,32 @@ body {
     overflow-y: auto;
 }
 
-/* Freedom Caucus pink badge override */
-.fc-pink-badge {
-    background-color: #e91e63 !important;
-    color: white !important;
+/* Freedom Caucus LIGHT PINK badge override - maximum specificity */
+.badge.fc-pink-badge,
+.badge[style*="e91e63"],
+span.badge.fc-pink-badge,
+.text-decoration-none .badge.fc-pink-badge,
+a .badge.fc-pink-badge,
+.badge.fc-pink-badge.ms-2,
+.badge.fc-pink-badge.me-1,
+.badge.fc-pink-badge.mb-1 {
+    background-color: #f8bbd9 !important;
+    color: #333 !important;
+    border-color: #f8bbd9 !important;
+    border: none !important;
+}
+
+/* Override any Bootstrap badge colors for FC badges */
+.badge.fc-pink-badge.bg-primary,
+.badge.fc-pink-badge.bg-secondary,
+.badge.fc-pink-badge.bg-success,
+.badge.fc-pink-badge.bg-danger,
+.badge.fc-pink-badge.bg-warning,
+.badge.fc-pink-badge.bg-info,
+.badge.fc-pink-badge.bg-light,
+.badge.fc-pink-badge.bg-dark {
+    background-color: #f8bbd9 !important;
+    color: #333 !important;
 }
 
 /* Responsive adjustments */

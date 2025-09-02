@@ -15,6 +15,9 @@ from flask_cors import CORS
 from flask_caching import Cache
 from io import BytesIO
 
+# Development mode check
+DEV_MODE = os.environ.get('DEV_MODE', 'false').lower() == 'true'
+
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -100,7 +103,8 @@ CORS(app)
 
 # Configure caching
 cache_config = {
-    'CACHE_TYPE': 'simple',  # In-memory cache
+    'CACHE_TYPE': 'filesystem',  # File-based cache for persistence across restarts
+    'CACHE_DIR': '/tmp/congressional_cache',  # Cache directory
     'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutes default timeout
 }
 app.config.update(cache_config)
@@ -125,19 +129,45 @@ os.environ['DATABASE_URL'] = 'mysql://congressional:congressional123@localhost/c
 @app.route('/')
 def index():
     """Main dashboard page."""
-    return render_template('index.html')
+    return render_template('index.html', dev_mode=DEV_MODE)
 
 @app.route('/api/summary')
 def get_summary():
-    """Get House-only database summary statistics."""
+    """Get House-only database summary statistics for current Congress period."""
     try:
         with get_db_session() as session:
-            # House-only counts
+            # Calculate time period since 119th Congress started (January 3, 2025)
+            from datetime import date
+            congress_start = date(2025, 1, 3)
+            today = date.today()
+            days_since_start = (today - congress_start).days + 1
+            
+            # House-only counts (members count is not time-filtered as it represents current membership)
             member_count = session.query(Member).filter(Member.district.isnot(None)).count()
-            bill_count = session.query(Bill).filter(Bill.chamber == 'house').count()
-            rollcall_count = session.query(Rollcall).filter(Rollcall.chamber == 'house').count()
-            vote_count = session.query(Vote).join(Rollcall).filter(Rollcall.chamber == 'house').count()
-            cosponsor_count = session.query(Cosponsor).join(Bill).filter(Bill.chamber == 'house').count()
+            
+            # Bills introduced since Congress start
+            bill_count = session.query(Bill).filter(
+                Bill.chamber == 'house',
+                Bill.introduced_date >= congress_start
+            ).count()
+            
+            # Roll calls since Congress start
+            rollcall_count = session.query(Rollcall).filter(
+                Rollcall.chamber == 'house',
+                Rollcall.date >= congress_start
+            ).count()
+            
+            # Votes cast since Congress start
+            vote_count = session.query(Vote).join(Rollcall).filter(
+                Rollcall.chamber == 'house',
+                Rollcall.date >= congress_start
+            ).count()
+            
+            # Cosponsorships since Congress start
+            cosponsor_count = session.query(Cosponsor).join(Bill).filter(
+                Bill.chamber == 'house',
+                Bill.introduced_date >= congress_start
+            ).count()
             
             # Get House party breakdown
             house_members = session.query(Member).filter(Member.district.isnot(None)).all()
@@ -154,7 +184,13 @@ def get_summary():
                 'total_votes': vote_count,
                 'total_cosponsors': cosponsor_count,
                 'house_party_breakdown': house_party_breakdown,
-                'note': 'House-only data'
+                'time_period': {
+                    'start_date': congress_start.isoformat(),
+                    'end_date': today.isoformat(),
+                    'days_covered': days_since_start,
+                    'description': f'119th Congress (since {congress_start.strftime("%B %d, %Y")})'
+                },
+                'note': f'House-only data since 119th Congress start ({days_since_start} days)'
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -423,11 +459,35 @@ def get_analysis(congress, chamber):
         congress = int(congress)
         chamber = chamber.lower()
         
-        # Run simplified House analysis
-        results = run_simple_house_analysis(congress, chamber, window_days=1000)
+        # Try to get cached analysis results
+        cache_key = f"analysis_{congress}_{chamber}"
+        cached_results = cache.get(cache_key)
+        
+        if cached_results:
+            app.logger.info(f"Serving cached analysis for Congress {congress}, {chamber}")
+            cached_results['cached'] = True
+            cached_results['cache_retrieved_at'] = datetime.now().isoformat()
+            return jsonify(cached_results)
+        
+        # If no cache, run analysis and cache the results
+        app.logger.info(f"Running fresh analysis for Congress {congress}, {chamber}")
+        # Calculate days since 119th Congress started (January 3, 2025)
+        from datetime import date
+        congress_start = date(2025, 1, 3)
+        days_since_start = (date.today() - congress_start).days + 1  # +1 to include start date
+        window_days = max(days_since_start, 30)  # Minimum 30 days for analysis
+        app.logger.info(f"Using {window_days} day window since 119th Congress start ({congress_start})")
+        results = run_simple_house_analysis(congress, chamber, window_days=window_days)
+        
+        # Cache results for 6 hours (21600 seconds)
+        cache.set(cache_key, results, timeout=21600)
+        
+        results['cached'] = False
+        results['generated_at'] = datetime.now().isoformat()
         
         return jsonify(results)
     except Exception as e:
+        app.logger.error(f"Analysis error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/votes/<rollcall_id>')
@@ -1048,13 +1108,75 @@ def get_member_details(bioguide_id):
                         if bill:
                             bill_title = bill.title
                     
+                    # Calculate cross-party vote status
+                    is_cross_party = False
+                    if vote.vote_code in ['Yea', 'Nay']:
+                        # Get all votes for this rollcall with member party info
+                        all_votes = session.query(Vote, Member.party).join(
+                            Member, Vote.member_id_bioguide == Member.member_id_bioguide
+                        ).filter(
+                            Vote.rollcall_id == vote.rollcall_id,
+                            Vote.vote_code.in_(['Yea', 'Nay']),
+                            Member.district.isnot(None)  # House members only
+                        ).all()
+                        
+                        # Count party votes - handle various party name formats
+                        party_votes = {}
+                        for v, party in all_votes:
+                            # Normalize party names
+                            if party in ['Republican', 'R']:
+                                normalized_party = 'Republican'
+                            elif party in ['Democratic', 'Democrat', 'D']:
+                                normalized_party = 'Democratic'
+                            else:
+                                normalized_party = party  # Keep as-is for other parties
+                            
+                            if normalized_party not in party_votes:
+                                party_votes[normalized_party] = {'Yea': 0, 'Nay': 0}
+                            party_votes[normalized_party][v.vote_code] += 1
+                        
+                        # Determine party majority positions
+                        # Normalize member party name
+                        if member.party in ['Republican', 'R']:
+                            member_party = 'Republican'
+                        elif member.party in ['Democratic', 'Democrat', 'D']:
+                            member_party = 'Democratic'
+                        else:
+                            member_party = member.party
+                        
+                        if member_party in party_votes:
+                            party_yea = party_votes[member_party]['Yea']
+                            party_nay = party_votes[member_party]['Nay']
+                            
+                            # Party majority position
+                            if party_yea > party_nay:
+                                party_majority_vote = 'Yea'
+                            elif party_nay > party_yea:
+                                party_majority_vote = 'Nay'
+                            else:
+                                party_majority_vote = None  # Tie
+                            
+                            # Check if member voted against party majority
+                            if party_majority_vote and vote.vote_code != party_majority_vote:
+                                is_cross_party = True
+                            
+                            # Debug logging for Marie Perez or frequent cross-voters
+                            if member.last in ['Perez', 'Ocasio-Cortez', 'Massie'] or is_cross_party:
+                                app.logger.info(f"DEBUG Cross-party for {member.first} {member.last} ({member.party} -> {member_party}) on {vote.rollcall_id}:")
+                                app.logger.info(f"  Member vote: {vote.vote_code}")
+                                app.logger.info(f"  Party breakdown: {party_votes}")
+                                app.logger.info(f"  Party majority: {party_majority_vote}")
+                                app.logger.info(f"  Is cross-party: {is_cross_party}")
+                                app.logger.info(f"  Total votes analyzed: {len(all_votes)}")
+                    
                     recent_votes_data.append({
                         'rollcall_id': vote.rollcall_id,
                         'vote_code': vote.vote_code,
                         'question': rollcall.question,
                         'date': rollcall.date.isoformat() if rollcall.date else None,
                         'bill_id': rollcall.bill_id,
-                        'bill_title': bill_title
+                        'bill_title': bill_title,
+                        'is_cross_party': is_cross_party
                     })
             
             # Check caucus memberships
@@ -1081,7 +1203,12 @@ def get_member_details(bioguide_id):
                     'is_blue_dog_coalition': is_blue_dog_coalition,
                     'is_maga_republican': is_maga_republican,
                     'is_congressional_black_caucus': is_congressional_black_caucus,
-                    'is_true_blue_democrat': is_true_blue_democrat
+                    'is_true_blue_democrat': is_true_blue_democrat,
+                    # Contact information
+                    'email': member.email,
+                    'phone': member.phone,
+                    'website': member.website,
+                    'dc_office': member.dc_office
                 },
                 'voting_stats': {
                     'total_votes': total_votes,

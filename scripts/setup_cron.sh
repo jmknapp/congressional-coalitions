@@ -1,38 +1,44 @@
 #!/bin/bash
 
-# Setup cron jobs for daily congressional data updates
+# Setup cron job for Congressional Coalition Analysis
+# This script sets up an hourly cron job to update analysis cache
 
-# Get the current directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+CRON_SCRIPT="$SCRIPT_DIR/cron_update_analysis.py"
 
-echo "Setting up cron jobs for congressional data updates..."
+echo "Setting up cron job for Congressional Coalition Analysis..."
 echo "Project directory: $PROJECT_DIR"
+echo "Cron script: $CRON_SCRIPT"
 
-# Create the cron job entry
-CRON_JOB="0 2 * * * cd $PROJECT_DIR && $PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/update_sponsors_cosponsors_daily.py --congress 119 --max-bills 50 --api-key ZsV6bo6tacezcFF8zhz63LknnHlu9XDNn7n8udeC >> $PROJECT_DIR/logs/daily_update.log 2>&1"
+# Create cache directory if it doesn't exist
+mkdir -p /tmp/congressional_cache
 
-echo "Cron job to be added:"
-echo "$CRON_JOB"
-echo ""
+# Create cron job entry
+CRON_ENTRY="0 * * * * cd $PROJECT_DIR && python3 $CRON_SCRIPT --congress 119 --chamber house >> /tmp/analysis_cron.log 2>&1"
 
 # Check if cron job already exists
-if crontab -l 2>/dev/null | grep -q "update_sponsors_cosponsors_daily.py"; then
-    echo "Cron job already exists. Removing old entry..."
-    crontab -l 2>/dev/null | grep -v "update_sponsors_cosponsors_daily.py" | crontab -
+if crontab -l 2>/dev/null | grep -q "cron_update_analysis.py"; then
+    echo "Cron job already exists. Updating..."
+    # Remove existing entry and add new one
+    (crontab -l 2>/dev/null | grep -v "cron_update_analysis.py"; echo "$CRON_ENTRY") | crontab -
+else
+    echo "Adding new cron job..."
+    # Add new entry to existing crontab
+    (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
 fi
 
-# Add the new cron job
-(crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
-
-echo "Cron job added successfully!"
+echo "Cron job configured successfully!"
+echo "The analysis will run every hour and cache results for quick retrieval."
 echo ""
-echo "Current cron jobs:"
-crontab -l
-
+echo "To check the cron job:"
+echo "  crontab -l"
 echo ""
-echo "The daily update will run at 2:00 AM every day."
-echo "Logs will be written to: $PROJECT_DIR/logs/daily_update.log"
+echo "To view logs:"
+echo "  tail -f /tmp/analysis_cron.log"
 echo ""
-echo "To manually run the update:"
-echo "cd $PROJECT_DIR && venv/bin/python scripts/update_sponsors_cosponsors_daily.py --congress 119 --max-bills 50 --api-key ZsV6bo6tacezcFF8zhz63LknnHlu9XDNn7n8udeC"
+echo "To test the script manually:"
+echo "  cd $PROJECT_DIR && python3 $CRON_SCRIPT"
+echo ""
+echo "To remove the cron job:"
+echo "  crontab -l | grep -v 'cron_update_analysis.py' | crontab -"

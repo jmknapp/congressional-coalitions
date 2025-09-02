@@ -6,7 +6,7 @@
     <title>Member Details - Congressional Coalition Tracker</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="/static/css/style.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=2024010307" rel="stylesheet">
 </head>
 <body>
     <!-- Navigation -->
@@ -14,7 +14,7 @@
         <div class="container">
             <a class="navbar-brand" href="/">
                 <i class="fas fa-chart-line me-2"></i>
-                Congressional Coalition Tracker
+                119th Congress Analysis
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="/">
@@ -58,7 +58,7 @@
                                         <span id="member-party-badge" class="party-badge me-3"></span>
                                         <span id="member-chamber" class="text-muted me-3"></span>
                                                         <a id="freedom-caucus-link" href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
-                    <span class="badge me-2" style="background-color: #e91e63; color: white;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information">
+                    <span class="badge fc-pink-badge me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information">
                         <i class="fas fa-scale-unbalanced me-1"></i>Freedom Caucus
                     </span>
                 </a>
@@ -78,7 +78,7 @@
                     </span>
                 </a>
                 <a id="congressional-black-caucus-link" href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
-                    <span class="badge bg-dark text-white me-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information">
+                    <span class="badge text-white me-2" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information">
                         <i class="fas fa-users me-1"></i>CBC
                     </span>
                 </a>
@@ -164,6 +164,47 @@
                                         <i class="fas fa-project-diagram me-1"></i>View Network
                                     </a>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Information -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-address-book me-2"></i>Contact Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div id="contact-email" class="mb-3" style="display: none;">
+                                        <strong><i class="fas fa-envelope me-2 text-primary"></i>Email:</strong>
+                                        <a id="contact-email-link" href="#" class="ms-2"></a>
+                                    </div>
+                                    <div id="contact-phone" class="mb-3" style="display: none;">
+                                        <strong><i class="fas fa-phone me-2 text-success"></i>Phone:</strong>
+                                        <a id="contact-phone-link" href="#" class="ms-2"></a>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div id="contact-website" class="mb-3" style="display: none;">
+                                        <strong><i class="fas fa-globe me-2 text-info"></i>Website:</strong>
+                                        <a id="contact-website-link" href="#" target="_blank" rel="noopener noreferrer" class="ms-2">
+                                            Official Website <i class="fas fa-external-link-alt fa-xs"></i>
+                                        </a>
+                                    </div>
+                                    <div id="contact-office" class="mb-3" style="display: none;">
+                                        <strong><i class="fas fa-building me-2 text-warning"></i>DC Office:</strong>
+                                        <span id="contact-office-text" class="ms-2"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="no-contact-info" class="text-center text-muted" style="display: none;">
+                                <i class="fas fa-info-circle fa-2x mb-2"></i>
+                                <p>Contact information not available</p>
                             </div>
                         </div>
                     </div>
@@ -285,6 +326,7 @@
                                             <th>Roll Call</th>
                                             <th>Question</th>
                                             <th>Vote</th>
+                                            <th>Cross-Party?</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -417,6 +459,9 @@
             // Recent votes
             displayRecentVotes(data.recent_votes);
             
+            // Contact information
+            displayContactInformation(data.member);
+            
             // Ideological profile
             if (data.ideological_profile) {
                 displayIdeologicalProfile(data.ideological_profile);
@@ -425,6 +470,45 @@
             // Show content
             document.getElementById('loading').style.display = 'none';
             document.getElementById('member-content').style.display = 'block';
+        }
+        
+        function displayContactInformation(member) {
+            // Check if any contact info is available
+            const hasEmail = member.email && member.email.trim();
+            const hasPhone = member.phone && member.phone.trim();
+            const hasWebsite = member.website && member.website.trim();
+            const hasOffice = member.dc_office && member.dc_office.trim();
+            
+            if (!hasEmail && !hasPhone && !hasWebsite && !hasOffice) {
+                document.getElementById('no-contact-info').style.display = 'block';
+                return;
+            }
+            
+            // Display email
+            if (hasEmail) {
+                document.getElementById('contact-email-link').href = `mailto:${member.email}`;
+                document.getElementById('contact-email-link').textContent = member.email;
+                document.getElementById('contact-email').style.display = 'block';
+            }
+            
+            // Display phone
+            if (hasPhone) {
+                document.getElementById('contact-phone-link').href = `tel:${member.phone}`;
+                document.getElementById('contact-phone-link').textContent = member.phone;
+                document.getElementById('contact-phone').style.display = 'block';
+            }
+            
+            // Display website
+            if (hasWebsite) {
+                document.getElementById('contact-website-link').href = member.website;
+                document.getElementById('contact-website').style.display = 'block';
+            }
+            
+            // Display office
+            if (hasOffice) {
+                document.getElementById('contact-office-text').textContent = member.dc_office;
+                document.getElementById('contact-office').style.display = 'block';
+            }
         }
         
         function displaySponsoredBills(bills) {
@@ -501,6 +585,14 @@
             const tbody = document.getElementById('recent-votes-tbody');
             tbody.innerHTML = '';
             
+            // Debug logging
+            console.log('Recent votes data:', votes);
+            const crossPartyVotes = votes.filter(v => v.is_cross_party);
+            console.log(`Found ${crossPartyVotes.length} cross-party votes out of ${votes.length} total votes`);
+            if (crossPartyVotes.length > 0) {
+                console.log('Cross-party votes:', crossPartyVotes);
+            }
+            
             if (votes.length === 0) {
                 document.getElementById('no-recent-votes').style.display = 'block';
                 return;
@@ -525,6 +617,11 @@
                     }
                 }
                 
+                // Cross-party indicator
+                const crossPartyIndicator = vote.is_cross_party ? 
+                    '<i class="fas fa-check text-success" data-bs-toggle="tooltip" data-bs-placement="top" title="Voted against party majority"></i>' : 
+                    '<span class="text-muted">-</span>';
+                
                 row.innerHTML = `
                     <td>${date}</td>
                     <td><strong><a href="/vote/${vote.rollcall_id}" target="_blank" rel="noopener noreferrer">${vote.rollcall_id}</a></strong></td>
@@ -533,6 +630,7 @@
                         <div>${(vote.question || '').substring(0, 60)}${(vote.question || '').length > 60 ? '...' : ''}</div>
                     </td>
                     <td><span class="vote-badge ${voteClass}">${vote.vote_code}</span></td>
+                    <td class="text-center">${crossPartyIndicator}</td>
                     <td>
                         <a class="btn btn-sm btn-outline-primary me-2" href="/vote/${vote.rollcall_id}" target="_blank" rel="noopener noreferrer">
                             <i class="fas fa-eye"></i> View Vote
@@ -540,6 +638,12 @@
                     </td>
                 `;
                 tbody.appendChild(row);
+            });
+            
+            // Initialize tooltips for cross-party indicators
+            const voteTooltipTriggerList = [].slice.call(document.querySelectorAll('#recent-votes-table [data-bs-toggle="tooltip"]'));
+            voteTooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
             });
         }
         

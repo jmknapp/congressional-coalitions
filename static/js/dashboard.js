@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadMembers();
     loadBills();
     loadRollcalls();
+    loadCrossPartyVoters();
 });
 
 // Helper to format member chip text
@@ -34,8 +35,17 @@ async function loadSummary() {
         document.getElementById('total-rollcalls').textContent = data.total_rollcalls;
         document.getElementById('total-cosponsors').textContent = data.total_cosponsors;
         
+        // Update time period information
+        if (data.time_period) {
+            const timePeriodText = `Data from ${data.time_period.description} (${data.time_period.days_covered} days)`;
+            document.getElementById('time-period-text').textContent = timePeriodText;
+        } else {
+            document.getElementById('time-period-text').textContent = 'Current session data';
+        }
+        
     } catch (error) {
         console.error('Error loading summary:', error);
+        document.getElementById('time-period-text').textContent = 'Error loading time period';
     }
 }
 
@@ -84,7 +94,7 @@ function displayMembers(members) {
         
         // Create caucus badges with clickable links to caucus info pages
         const freedomCaucusBadge = member.is_freedom_caucus ? 
-            '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge ms-2" style="background: #e91e63 !important; color: white !important; border: 2px solid #e91e63 !important;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>' : '';
+            '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>' : '';
         const progressiveCaucusBadge = member.is_progressive_caucus ? 
             '<a href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Progressive Caucus information"><i class="fas fa-arrow-trend-up me-1"></i>PC</span></a>' : '';
         const blueDogCoalitionBadge = member.is_blue_dog_coalition ? 
@@ -92,13 +102,19 @@ function displayMembers(members) {
         const magaRepublicanBadge = member.is_maga_republican ? 
             '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view MAGA Republicans information"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>' : '';
         const congressionalBlackCaucusBadge = member.is_congressional_black_caucus ? 
-            '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-dark text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
+            '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
         const trueBlueDemocratsBadge = member.is_true_blue_democrat ? 
             '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information"><i class="fas fa-heart me-1"></i>TB</span></a>' : '';
 
         row.innerHTML = `
             <td>
-                <a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a>
+                <a href="/member/${member.id}" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   data-bs-toggle="tooltip" 
+                   data-bs-placement="right"
+                   data-bs-html="true"
+                   data-bs-title="<img src='/api/member-image/${member.id}' alt='${member.name}' style='width: 120px; height: 120px; object-fit: cover; border-radius: 8px;'><br><strong>${member.name}</strong><br><small>${member.party} - ${member.state}${member.district ? ' District ' + member.district : ''}</small>">${member.name}</a>
                 ${freedomCaucusBadge}
                 ${progressiveCaucusBadge}
                 ${blueDogCoalitionBadge}
@@ -270,6 +286,155 @@ async function loadRollcalls() {
     }
 }
 
+// Load cross-party voters data
+async function loadCrossPartyVoters() {
+    try {
+        // Show spinner, hide table
+        const spinner = document.getElementById('crossparty-loading-spinner');
+        const tableContainer = document.getElementById('crossparty-table-container');
+        
+        if (spinner) spinner.style.display = 'block';
+        if (tableContainer) tableContainer.style.display = 'none';
+        
+        // Fetch both analysis data and member data in parallel
+        const [analysisResponse, membersResponse] = await Promise.all([
+            fetch('/api/analysis/119/house'),
+            fetch('/api/members')
+        ]);
+        
+        const analysisData = await analysisResponse.json();
+        const membersData = await membersResponse.json();
+        
+        console.log('Members data structure:', Object.keys(membersData));
+        
+        const crossPartyVoters = (analysisData.member_analysis && analysisData.member_analysis.cross_party_voters) || [];
+        
+        // Create member lookup by bioguide ID
+        const memberLookup = {};
+        let members;
+        
+        // Handle different response formats more robustly
+        if (membersData.members) {
+            members = membersData.members;
+        } else if (Array.isArray(membersData)) {
+            members = membersData;
+        } else {
+            console.error('Unexpected members data format:', membersData);
+            members = [];
+        }
+        
+        members.forEach(member => {
+            if (member && member.id) {
+                memberLookup[member.id] = member;
+            }
+        });
+        
+        // Debug logging
+        console.log('Member lookup created with', Object.keys(memberLookup).length, 'members');
+        console.log('Sample member IDs:', Object.keys(memberLookup).slice(0, 5));
+        console.log('Sample cross-party voter IDs:', crossPartyVoters.slice(0, 5).map(v => v.member_id));
+        
+        if (spinner) spinner.style.display = 'none';
+        if (tableContainer) tableContainer.style.display = 'block';
+        
+        const tbody = document.getElementById('crossparty-tbody');
+        if (!tbody) {
+            console.error('Cross-party tbody element not found');
+            return;
+        }
+        tbody.innerHTML = '';
+        
+        if (crossPartyVoters.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No cross-party voting data available</td></tr>';
+            return;
+        }
+        
+        // Display top 15 cross-party voters
+        crossPartyVoters.slice(0, 15).forEach((voter, index) => {
+            const percentageClass = voter.cross_party_percentage > 20 ? 'bg-warning' : 'bg-info';
+            const bioguideId = voter.member_id;
+            const member = memberLookup[bioguideId];
+            
+            // Debug logging for first few members
+            if (index < 3) {
+                console.log(`Voter ${index}:`, voter.name, 'ID:', bioguideId, 'Member found:', !!member);
+                if (member) {
+                    console.log('  Caucus memberships:', {
+                        freedom: member.is_freedom_caucus,
+                        progressive: member.is_progressive_caucus,
+                        blue_dog: member.is_blue_dog_coalition,
+                        maga: member.is_maga_republican,
+                        cbc: member.is_congressional_black_caucus,
+                        true_blue: member.is_true_blue_democrat
+                    });
+                }
+            }
+            
+            // Generate caucus badges
+            let badges = '';
+            if (member) {
+                const freedomCaucusBadge = member.is_freedom_caucus ? 
+                    '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>' : '';
+                const progressiveCaucusBadge = member.is_progressive_caucus ? 
+                    '<a href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Progressive Caucus information"><i class="fas fa-arrow-trend-up me-1"></i>PC</span></a>' : '';
+                const blueDogBadge = member.is_blue_dog_coalition ? 
+                    '<a href="/caucus/3" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Blue Dog Coalition information"><i class="fas fa-dog me-1"></i>BD</span></a>' : '';
+                const magaBadge = member.is_maga_republican ? 
+                    '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view MAGA Republicans information"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>' : '';
+                const congressionalBlackCaucusBadge = member.is_congressional_black_caucus ? 
+                    '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
+                const trueBlueBadge = member.is_true_blue_democrat ? 
+                    '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information"><i class="fas fa-heart me-1"></i>TB</span></a>' : '';
+                
+                badges = freedomCaucusBadge + progressiveCaucusBadge + blueDogBadge + magaBadge + congressionalBlackCaucusBadge + trueBlueBadge;
+            }
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <a href="/member/${bioguideId}" 
+                       target="_blank" 
+                       rel="noopener noreferrer" 
+                       class="text-decoration-none"
+                       data-bs-toggle="tooltip" 
+                       data-bs-placement="right"
+                       data-bs-html="true"
+                       data-bs-title="<img src='/api/member-image/${bioguideId}' alt='${voter.name}' style='width: 120px; height: 120px; object-fit: cover; border-radius: 8px;'><br><strong>${voter.name}</strong><br><small>${voter.party} - ${voter.state}</small>">
+                        ${voter.name}
+                    </a>
+                    ${badges}
+                </td>
+                <td><span class="party-badge party-${voter.party.toLowerCase()}">${voter.party}</span></td>
+                <td>${voter.state}</td>
+                <td><span class="badge ${percentageClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Cross-party voting percentage">${voter.cross_party_percentage.toFixed(1)}%</span></td>
+                <td>${voter.cross_party_votes}</td>
+                <td>${voter.total_votes}</td>
+            `;
+            tbody.appendChild(row);
+        });
+        
+        // Initialize tooltips for this section
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('#crossparty-table [data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+        
+        console.log(`Cross-party voters loaded: ${crossPartyVoters.length} members (showing top 15)`);
+        
+    } catch (error) {
+        console.error('Error loading cross-party voters:', error);
+        const spinner = document.getElementById('crossparty-loading-spinner');
+        if (spinner) {
+            spinner.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Failed to load cross-party voting data: ${error.message}
+                </div>
+            `;
+        }
+    }
+}
+
 // Run coalition analysis
 async function runAnalysis() {
     const congress = document.getElementById('congress-select').value;
@@ -356,73 +521,7 @@ function displayAnalysisResults(data, congress, chamber, window) {
         </div>
     `;
     
-    // Display most partisan votes
-    const mostPartisanVotes = votingAnalysis.most_partisan_votes || [];
-    if (mostPartisanVotes.length > 0) {
-        html += '<h5 class="mt-4 mb-3"><i class="fas fa-vote-yea me-2"></i>Most Partisan Votes</h5>';
-        html += '<div class="table-responsive">';
-        html += '<table class="table table-striped">';
-        html += '<thead><tr><th>Roll Call</th><th>Question</th><th>Party Line Score</th></tr></thead>';
-        html += '<tbody>';
-        
-        mostPartisanVotes.slice(0, 10).forEach(vote => {
-            // Create bill title display if bill_id exists
-            let billDisplay = '';
-            if (vote.bill_id) {
-                if (vote.bill_title) {
-                    // Use the actual bill title if available
-                    billDisplay = `<div class="mb-1"><strong><a href="/bill/${vote.bill_id}" target="_blank" rel="noopener noreferrer">${vote.bill_title}</a></strong></div>`;
-                } else {
-                    // Fallback to bill code if title not available
-                    const billParts = vote.bill_id.split('-');
-                    if (billParts.length >= 2) {
-                        const billType = billParts[0].toUpperCase();
-                        const billNumber = billParts[1];
-                        const billTypeDisplay = billType === 'HR' ? 'H.R.' : billType === 'S' ? 'S.' : billType === 'HJRES' ? 'H.J.Res.' : billType === 'SJRES' ? 'S.J.Res.' : billType === 'HCONRES' ? 'H.Con.Res.' : billType === 'SCONRES' ? 'S.Con.Res.' : billType;
-                        billDisplay = `<div class="mb-1"><strong><a href="/bill/${vote.bill_id}" target="_blank" rel="noopener noreferrer">${billTypeDisplay} ${billNumber}</a></strong></div>`;
-                    }
-                }
-            }
-            
-            html += `
-                <tr>
-                    <td><strong><a href="/vote/${vote.rollcall_id}" target="_blank" rel="noopener noreferrer">${vote.rollcall_id}</a></strong></td>
-                    <td>
-                        ${billDisplay}
-                        <div>${vote.question || 'N/A'}</div>
-                    </td>
-                    <td><span class="badge bg-danger">${vote.party_line_score.toFixed(1)}%</span></td>
-                </tr>
-            `;
-        });
-        
-        html += '</tbody></table></div>';
-    }
-    
-    // Display most similar voters
-    const mostSimilarVoters = memberAnalysis.most_similar_voters || [];
-    if (mostSimilarVoters.length > 0) {
-        html += '<h5 class="mt-4 mb-3"><i class="fas fa-users me-2"></i>Most Similar Voters</h5>';
-        html += '<div class="table-responsive">';
-        html += '<table class="table table-striped">';
-        html += '<thead><tr><th>Member 1</th><th>Member 2</th><th>Agreement %</th></tr></thead>';
-        html += '<tbody>';
-        
-        mostSimilarVoters.slice(0, 10).forEach(pair => {
-            const party1Class = pair.party1 ? `party-${pair.party1.toLowerCase()}` : '';
-            const party2Class = pair.party2 ? `party-${pair.party2.toLowerCase()}` : '';
-            
-            html += `
-                <tr>
-                    <td><span class="member-chip ${party1Class}">${pair.member1} (${pair.party1})</span></td>
-                    <td><span class="member-chip ${party2Class}">${pair.member2} (${pair.party2})</span></td>
-                    <td><span class="badge bg-success">${pair.agreement.toFixed(1)}%</span></td>
-                </tr>
-            `;
-        });
-        
-        html += '</tbody></table></div>';
-    }
+
     
     // Display cross-party voters
     const crossPartyVoters = memberAnalysis.cross_party_voters || [];
@@ -434,12 +533,24 @@ function displayAnalysisResults(data, congress, chamber, window) {
         html += '<tbody>';
         
         crossPartyVoters.slice(0, 15).forEach(member => {
-            const partyClass = member.party ? `party-${member.party.toLowerCase()}` : '';
             const percentageClass = member.cross_party_percentage > 20 ? 'bg-warning' : 'bg-info';
+            // Use member_id as bioguide_id (they're the same in this context)
+            const bioguideId = member.member_id;
             
             html += `
                 <tr>
-                    <td><a href="/member/${member.bioguide_id}" target="_blank" rel="noopener noreferrer"><span class="member-chip ${partyClass}">${member.name}</span></a></td>
+                    <td>
+                        <a href="/member/${bioguideId}" 
+                           target="_blank" 
+                           rel="noopener noreferrer" 
+                           class="text-decoration-none"
+                           data-bs-toggle="tooltip" 
+                           data-bs-placement="right"
+                           data-bs-html="true"
+                           data-bs-title="<img src='/api/member-image/${bioguideId}' alt='${member.name}' style='width: 120px; height: 120px; object-fit: cover; border-radius: 8px;'><br><strong>${member.name}</strong><br><small>${member.party} - ${member.state}</small>">
+                            ${member.name}
+                        </a>
+                    </td>
                     <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
                     <td>${member.state}</td>
                     <td><span class="badge ${percentageClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Cross-party voting percentage">${member.cross_party_percentage.toFixed(1)}%</span></td>

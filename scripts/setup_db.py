@@ -34,6 +34,11 @@ class Member(Base):
     district = Column(Integer)  # NULL for senators
     start_date = Column(Date)
     end_date = Column(Date)
+    # Contact information
+    email = Column(String(200))
+    phone = Column(String(20))
+    website = Column(String(500))
+    dc_office = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
