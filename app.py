@@ -8,10 +8,12 @@ import os
 import sys
 import json
 import unicodedata
+import requests
 from datetime import datetime, date
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file, Response
 from flask_cors import CORS
 from flask_caching import Cache
+from io import BytesIO
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -315,6 +317,52 @@ def clear_cache():
         return jsonify({'message': 'Cache cleared successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/member-image/<member_id>')
+@cache.cached(timeout=3600)  # Cache for 1 hour
+def get_member_image(member_id):
+    """Get member image with server-side caching and fallback to SVG avatar."""
+    try:
+        # Construct Congress.gov image URL
+        congress_url = f"https://www.congress.gov/img/member/{member_id.lower()}_200.jpg"
+        
+        # Try to fetch the image with a proper User-Agent header
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://www.congress.gov/',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+        }
+        
+        response = requests.get(congress_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200 and 'image' in response.headers.get('content-type', ''):
+            # Successfully got the image
+            return Response(
+                response.content,
+                mimetype=response.headers.get('content-type', 'image/jpeg'),
+                headers={
+                    'Cache-Control': 'public, max-age=3600',
+                    'Content-Length': len(response.content)
+                }
+            )
+    except Exception as e:
+        print(f"Failed to fetch image for {member_id}: {e}")
+    
+    # Fallback to SVG avatar
+    svg_avatar = '''<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="100" cy="100" r="100" fill="#6c757d"/>
+<svg x="50" y="50" width="100" height="100" viewBox="0 0 24 24" fill="white">
+<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+</svg>
+</svg>'''
+    
+    return Response(
+        svg_avatar,
+        mimetype='image/svg+xml',
+        headers={
+            'Cache-Control': 'public, max-age=3600'
+        }
+    )
 
 @app.route('/api/rollcalls')
 def get_rollcalls():
@@ -1106,17 +1154,25 @@ def bill_details_page(bill_id):
             
             sponsor = session.query(Member).filter(Member.member_id_bioguide == bill.sponsor_bioguide).first()
             
-            cos = session.query(Cosponsor).filter(Cosponsor.bill_id == bill_id).all()
+            # Optimized query to get cosponsors with member details in one query
+            cos_query = session.query(Cosponsor, Member).join(
+                Member, Cosponsor.member_id_bioguide == Member.member_id_bioguide
+            ).filter(Cosponsor.bill_id == bill_id).all()
+            
             cos_rows = []
-            for c in cos:
-                m = session.query(Member).filter(Member.member_id_bioguide == c.member_id_bioguide).first()
+            for cosponsor, member in cos_query:
+                # Skip cosponsors with invalid/missing member data
+                if not member or not member.first or not member.last:
+                    continue
+                    
                 cos_rows.append({
-                    'member_id': c.member_id_bioguide,
-                    'member_name': f"{m.first} {m.last}" if m else 'Unknown',
-                    'party': m.party if m else None,
-                    'state': m.state if m else None,
-                    'date': c.date,
-                    'is_original': c.is_original
+                    'member_id': cosponsor.member_id_bioguide,
+                    'member_name': f"{member.first} {member.last}",
+                    'party': member.party or '',
+                    'state': member.state or '',
+                    'district': member.district,
+                    'date': cosponsor.date,
+                    'is_original': cosponsor.is_original
                 })
             
             rcs = session.query(Rollcall).filter(Rollcall.bill_id == bill_id).all()

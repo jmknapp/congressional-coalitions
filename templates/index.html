@@ -16,12 +16,15 @@
                 House Coalition Analysis
             </a>
             <div class="navbar-nav ms-auto">
-                <a class="nav-link" href="/network">
-                    <i class="fas fa-project-diagram me-1"></i>Co-sponsorship Network
-                </a>
-                <a class="nav-link" href="/caucus-management">
+                <a class="nav-link" href="/caucus-management" id="caucus-management-link" style="display: none;">
                     <i class="fas fa-users-cog me-1"></i>Caucus Management
                 </a>
+                <!-- Developer Mode Badge -->
+                <span class="navbar-text" id="dev-mode-badge" style="display: none;">
+                    <span class="badge bg-warning text-dark ms-2">
+                        <i class="fas fa-code me-1"></i>DEV MODE
+                    </span>
+                </span>
             </div>
         </div>
     </nav>
@@ -78,20 +81,14 @@
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label for="congress-select" class="form-label">Congress:</label>
                                 <select class="form-select" id="congress-select">
                                     <option value="119">119th Congress (Current)</option>
                                     <option value="118">118th Congress</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
-                                <label for="chamber-select" class="form-label">Chamber:</label>
-                                <select class="form-select" id="chamber-select" disabled>
-                                    <option value="house" selected>House</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label for="window-select" class="form-label">Analysis Window:</label>
                                 <select class="form-select" id="window-select">
                                     <option value="90">90 Days</option>
@@ -100,7 +97,7 @@
                                     <option value="1000">All Time</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label">&nbsp;</label>
                                 <button class="btn btn-primary w-100" onclick="runAnalysis()">
                                     <i class="fas fa-play me-2"></i>Run Analysis
@@ -314,5 +311,73 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1000, 9999) | random }}"></script>
+    
+    <!-- Developer Mode Script -->
+    <script>
+        // Developer mode functionality
+        let developerMode = false;
+        
+        // Check if developer mode was previously enabled (localStorage)
+        if (localStorage.getItem('developerMode') === 'true') {
+            enableDeveloperMode();
+        }
+        
+        // Listen for Shift+Ctrl+D key combination
+        document.addEventListener('keydown', function(event) {
+            if (event.shiftKey && event.ctrlKey && event.key.toLowerCase() === 'd') {
+                event.preventDefault();
+                toggleDeveloperMode();
+            }
+        });
+        
+        function toggleDeveloperMode() {
+            if (developerMode) {
+                disableDeveloperMode();
+            } else {
+                enableDeveloperMode();
+            }
+        }
+        
+        function enableDeveloperMode() {
+            developerMode = true;
+            localStorage.setItem('developerMode', 'true');
+            
+            // Show developer badge
+            const devBadge = document.getElementById('dev-mode-badge');
+            if (devBadge) {
+                devBadge.style.display = 'block';
+            }
+            
+            // Show Caucus Management link
+            const caucusLink = document.getElementById('caucus-management-link');
+            if (caucusLink) {
+                caucusLink.style.display = 'block';
+            }
+            
+            console.log('🚀 Developer Mode ENABLED - Caucus Management available');
+        }
+        
+        function disableDeveloperMode() {
+            developerMode = false;
+            localStorage.setItem('developerMode', 'false');
+            
+            // Hide developer badge
+            const devBadge = document.getElementById('dev-mode-badge');
+            if (devBadge) {
+                devBadge.style.display = 'none';
+            }
+            
+            // Hide Caucus Management link
+            const caucusLink = document.getElementById('caucus-management-link');
+            if (caucusLink) {
+                caucusLink.style.display = 'none';
+            }
+            
+            console.log('🔒 Developer Mode DISABLED - Caucus Management hidden');
+        }
+        
+        // Show current mode in console on page load
+        console.log(`Developer Mode: ${developerMode ? 'ENABLED' : 'DISABLED'} (Shift+Ctrl+D to toggle)`);
+    </script>
 </body>
 </html>

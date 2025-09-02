@@ -226,6 +226,13 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Check if developer mode is enabled before loading page
+        if (localStorage.getItem('developerMode') !== 'true') {
+            alert('Developer Mode required. Press Shift+Ctrl+D on the main dashboard to enable.');
+            window.location.href = '/';
+        }
+    </script>
     <script src="{{ url_for('static', filename='js/caucus_management.js') }}"></script>
 </body>
 </html>

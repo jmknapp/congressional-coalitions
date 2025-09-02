@@ -19,9 +19,6 @@
                 <a class="nav-link" href="/">
                     <i class="fas fa-home me-1"></i>Dashboard
                 </a>
-                <a class="nav-link" href="/caucus-management">
-                    <i class="fas fa-users-cog me-1"></i>Caucus Management
-                </a>
             </div>
         </div>
     </nav>
@@ -63,9 +60,6 @@
                                 <a href="/caucus/{{ caucus.id }}/network" class="btn btn-primary">
                                     <i class="fas fa-project-diagram me-2"></i>View Network Graph
                                 </a>
-                                <a href="/caucus-management" class="btn btn-outline-primary">
-                                    <i class="fas fa-edit me-2"></i>Manage Members
-                                </a>
                                 <button class="btn btn-outline-secondary" onclick="window.print()">
                                     <i class="fas fa-print me-2"></i>Print Page
                                 </button>
@@ -90,17 +84,26 @@
                                         <th>Party</th>
                                         <th>State</th>
                                         <th>District</th>
-                                        <th>Member Since</th>
-                                        <th>Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for member in members %}
                                         <tr>
                                             <td>
-                                                <a href="/member/{{ member.id }}" target="_blank" rel="noopener noreferrer">
-                                                    {{ member.name }}
-                                                </a>
+                                                <div class="d-flex align-items-center">
+                                                    <img src="/api/member-image/{{ member.id }}" 
+                                                         alt="{{ member.name }}" 
+                                                         class="rounded-circle me-2 member-thumbnail"
+                                                         style="width: 32px; height: 32px; object-fit: cover; cursor: pointer;"
+                                                         data-bs-toggle="tooltip" 
+                                                         data-bs-placement="right"
+                                                         data-bs-html="true"
+                                                         data-bs-title="<img src='/api/member-image/{{ member.id }}' alt='{{ member.name }}' style='width: 120px; height: 120px; object-fit: cover; border-radius: 8px;' onerror='this.src=&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxjaXJjbGUgY3g9IjYwIiBjeT0iNjAiIHI9IjYwIiBmaWxsPSIjNmM3NTdkIi8+CjxzdmcgeD0iMzAiIHk9IjMwIiB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPgo8cGF0aCBkPSJNMTIgMTJjMi4yMSAwIDQtMS43OSA0LTRzLTEuNzktNC00LTQtNCAxLjc5LTQgNCAxLjc5IDQgNCA0em0wIDJjLTIuNjcgMC04IDEuMzQtOCA0djJoMTZ2LTJjMC0yLjY2LTUuMzMtNC04LTR6Ii8+Cjwvc3ZnPgo8L3N2Zz4K&quot;;'><br><strong>{{ member.name }}</strong><br><small>{{ member.party }} - {{ member.state }}{{ member.district if member.district else '' }}</small>"
+                                                         onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiM2Yzc1N2QiLz4KPHN2ZyB4PSI4IiB5PSI4IiB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPgo8cGF0aCBkPSJNMTIgMTJjMi4yMSAwIDQtMS43OSA0LTRzLTEuNzktNC00LTQtNCAxLjc5LTQgNCAxLjc5IDQgNCA0em0wIDJjLTIuNjcgMC04IDEuMzQtOCA0djJoMTZ2LTJjMC0yLjY2LTUuMzMtNC04LTR6Ii8+Cjwvc3ZnPgo8L3N2Zz4K';">
+                                                    <a href="/member/{{ member.id }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+                                                        {{ member.name }}
+                                                    </a>
+                                                </div>
                                             </td>
                                             <td>
                                                 <span class="party-badge party-{{ member.party.lower() }}">
@@ -109,20 +112,6 @@
                                             </td>
                                             <td>{{ member.state }}</td>
                                             <td>{{ member.district if member.district else 'At-Large' }}</td>
-                                            <td>
-                                                {% if member.start_date %}
-                                                    {{ member.start_date }}
-                                                {% else %}
-                                                    <span class="text-muted">Unknown</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                {% if member.notes %}
-                                                    {{ member.notes }}
-                                                {% else %}
-                                                    <span class="text-muted">-</span>
-                                                {% endif %}
-                                            </td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>
@@ -133,9 +122,6 @@
                             <i class="fas fa-users fa-3x text-muted mb-3"></i>
                             <h5 class="text-muted">No Active Members</h5>
                             <p class="text-muted">This caucus currently has no active members.</p>
-                            <a href="/caucus-management" class="btn btn-primary">
-                                <i class="fas fa-plus me-2"></i>Add Members
-                            </a>
                         </div>
                     {% endif %}
                 </div>
@@ -175,5 +161,17 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize Bootstrap tooltips for member thumbnails
+        document.addEventListener('DOMContentLoaded', function() {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl, {
+                    delay: { show: 200, hide: 100 },
+                    trigger: 'hover focus'
+                });
+            });
+        });
+    </script>
 </body>
 </html>

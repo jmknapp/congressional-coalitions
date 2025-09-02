@@ -123,6 +123,14 @@ body {
     min-width: 80px;
 }
 
+/* Party column width constraint for caucus members table */
+.card-body .table th:nth-child(2),
+.card-body .table td:nth-child(2) {
+    width: 80px;
+    max-width: 80px;
+    min-width: 80px;
+}
+
 /* Bills table column widths */
 #bills-table th:nth-child(2),
 #bills-table td:nth-child(2) {

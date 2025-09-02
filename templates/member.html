@@ -49,12 +49,7 @@
                                     <div class="member-photo-container">
                                         <img id="member-photo" class="img-fluid rounded-circle border" 
                                              style="width: 120px; height: 120px; object-fit: cover;" 
-                                             alt="Member Photo" 
-                                             onerror="this.style.display='none'; document.getElementById('photo-placeholder').style.display='block';">
-                                        <div id="photo-placeholder" class="bg-light rounded-circle border d-flex align-items-center justify-content-center" 
-                                             style="width: 120px; height: 120px; display: none;">
-                                            <i class="fas fa-user fa-3x text-muted"></i>
-                                        </div>
+                                             alt="Member Photo">
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -339,9 +334,9 @@
             document.getElementById('member-party-badge').className = `party-badge party-${member.party.toLowerCase()}`;
             document.getElementById('member-chamber').textContent = member.chamber;
             
-            // Member photo - using official bioguide photos
+            // Member photo - use server endpoint with built-in fallback
             const memberPhoto = document.getElementById('member-photo');
-            const photoUrl = `https://bioguide.congress.gov/bioguide/photo/${member.id.charAt(0)}/${member.id}.jpg`;
+            const photoUrl = `/api/member-image/${member.id}`;
             memberPhoto.src = photoUrl;
             
             // Freedom Caucus badge
