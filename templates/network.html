@@ -180,7 +180,15 @@
 </head>
 <body>
     <div class="controls">
-        <button onclick="loadData()">RESET</button>
+        <div style="margin-bottom: 10px;">
+            <label for="party-filter" style="display: block; margin-bottom: 3px; font-size: 12px;">Party Filter:</label>
+            <select id="party-filter" onchange="applyPartyFilter()" style="width: 120px; background: #444; color: white; border: 1px solid #666; padding: 3px;">
+                <option value="">All Members</option>
+                <option value="D">Democratic</option>
+                <option value="R">Republican</option>
+            </select>
+        </div>
+        <button onclick="resetNetwork()">RESET</button>
         <button onclick="stabilize()">STABILIZE</button>
         <button onclick="fitView()">FIT VIEW</button>
         <button onclick="togglePhysics()">TOGGLE PHYSICS</button>
@@ -409,7 +417,12 @@
         function loadData() {
             showLoading();
             
-            fetch('/api/network/cosponsorship')
+            const partyFilter = document.getElementById('party-filter').value;
+            const url = partyFilter ? 
+                `/api/network/cosponsorship?party=${encodeURIComponent(partyFilter)}` : 
+                '/api/network/cosponsorship';
+            
+            fetch(url)
                 .then(response => response.json())
                 .then(data => {
                     fullData = data;
@@ -420,6 +433,15 @@
                     console.error('Error loading network data:', error);
                     hideLoading();
                 });
+        }
+
+        function applyPartyFilter() {
+            loadData(); // Reload data with new filter
+        }
+
+        function resetNetwork() {
+            document.getElementById('party-filter').value = ''; // Clear party filter
+            loadData(); // Reload with no filters
         }
 
         function render(data, clickedId) {

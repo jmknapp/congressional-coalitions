@@ -142,12 +142,76 @@
             stroke: #4CAF50;
             stroke-width: 3;
         }
+        
+        .controls {
+            position: absolute;
+            top: 80px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            min-width: 200px;
+        }
+        
+        .controls h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: white;
+        }
+        
+        .control-group {
+            margin-bottom: 10px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 3px;
+            font-size: 12px;
+            color: white;
+        }
+        
+        .control-group select {
+            width: 100%;
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 3px;
+            border-radius: 3px;
+        }
+        
+        .controls button {
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 5px 10px;
+            margin: 2px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        
+        .controls button:hover {
+            background: #666;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Co-sponsorship Network: <span id="member-name">{{ bioguide_id }}</span></h1>
         <div class="member-info" id="member-details">Loading...</div>
+    </div>
+
+    <div class="controls">
+        <h3>Network Filters</h3>
+        <div class="control-group">
+            <label for="party-filter">Show Connections To:</label>
+            <select id="party-filter" onchange="applyPartyFilter()">
+                <option value="">All Members</option>
+                <option value="D">Democratic Members</option>
+                <option value="R">Republican Members</option>
+            </select>
+        </div>
+        <button onclick="resetNetwork()">Reset Filter</button>
     </div>
 
     <div class="network-container" id="network-container"></div>
@@ -467,7 +531,11 @@
             simulation = d3.forceSimulation(nodes)
                 .force("link", d3.forceLink(validLinks).id(d => d.id).distance(80))
                 .force("charge", d3.forceManyBody().strength(-200))
-                .force("collision", d3.forceCollide().radius(25));
+                .force("collision", d3.forceCollide().radius(25))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .alpha(1.0) // Start with high energy
+                .alphaDecay(0.01) // Slower decay for more spreading time
+                .velocityDecay(0.4); // Less velocity decay for better movement
 
             // Create nodes first (so they're behind links)
             const nodeGroup = container.append("g").attr("stroke-width", 1.5);
@@ -531,13 +599,67 @@
                 .style("text-shadow", "2px 2px 4px rgba(0,0,0,0.8)")
                 .style("pointer-events", "none"); // Make text non-interactive
 
+            // After a short delay, release fixed positions to allow physics spreading
+            setTimeout(() => {
+                // Release all nodes except the target member from fixed positions
+                nodes.forEach(node => {
+                    if (!node.is_target) {
+                        delete node.fx;
+                        delete node.fy;
+                    }
+                });
+                
+                // Restart simulation with stronger forces for spreading
+                simulation
+                    .force("charge", d3.forceManyBody().strength(-400)) // Stronger repulsion
+                    .force("collision", d3.forceCollide().radius(30)) // Larger collision radius
+                    .alpha(0.8) // Restart with moderate energy
+                    .restart();
+                
+                console.log("Physics spreading activated - nodes will spread apart naturally");
+            }, 1000); // Wait 1 second before releasing physics
+
             // Update positions on simulation tick
             simulation.on("tick", () => {
                 link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+                    .attr("x1", d => {
+                        // Calculate edge position on source node circumference with small buffer
+                        const sourceRadius = d.source.is_target ? 12 : 8;
+                        const strokeWidth = d.source.is_target ? 3 : 1;
+                        const totalRadius = sourceRadius + strokeWidth + 1; // Add 1px buffer
+                        const dx = d.target.x - d.source.x;
+                        const dy = d.target.y - d.source.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance === 0 ? d.source.x : d.source.x + (dx / distance) * totalRadius;
+                    })
+                    .attr("y1", d => {
+                        const sourceRadius = d.source.is_target ? 12 : 8;
+                        const strokeWidth = d.source.is_target ? 3 : 1;
+                        const totalRadius = sourceRadius + strokeWidth + 1; // Add 1px buffer
+                        const dx = d.target.x - d.source.x;
+                        const dy = d.target.y - d.source.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance === 0 ? d.source.y : d.source.y + (dy / distance) * totalRadius;
+                    })
+                    .attr("x2", d => {
+                        // Calculate edge position on target node circumference with small buffer
+                        const targetRadius = d.target.is_target ? 12 : 8;
+                        const strokeWidth = d.target.is_target ? 3 : 1;
+                        const totalRadius = targetRadius + strokeWidth + 1; // Add 1px buffer
+                        const dx = d.target.x - d.source.x;
+                        const dy = d.target.y - d.source.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance === 0 ? d.target.x : d.target.x - (dx / distance) * totalRadius;
+                    })
+                    .attr("y2", d => {
+                        const targetRadius = d.target.is_target ? 12 : 8;
+                        const strokeWidth = d.target.is_target ? 3 : 1;
+                        const totalRadius = targetRadius + strokeWidth + 1; // Add 1px buffer
+                        const dx = d.target.x - d.source.x;
+                        const dy = d.target.y - d.source.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance === 0 ? d.target.y : d.target.y - (dy / distance) * totalRadius;
+                    });
 
                 node
                     .attr("cx", d => d.x)
@@ -552,7 +674,12 @@
         async function loadData() {
             showLoading();
             try {
-                const response = await fetch(`/api/network/member/${memberId}`);
+                const partyFilter = document.getElementById('party-filter').value;
+                const url = partyFilter ? 
+                    `/api/network/member/${memberId}?party=${encodeURIComponent(partyFilter)}` : 
+                    `/api/network/member/${memberId}`;
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 
                 if (response.ok) {
@@ -567,6 +694,15 @@
             } finally {
                 hideLoading();
             }
+        }
+
+        function applyPartyFilter() {
+            loadData(); // Reload data with new filter
+        }
+
+        function resetNetwork() {
+            document.getElementById('party-filter').value = ''; // Clear party filter
+            loadData(); // Reload with no filters
         }
 
         // Load data when page loads

@@ -543,11 +543,19 @@ def get_cosponsors(bill_id):
 def get_cosponsorship_network():
     """Get co-sponsorship network data for visualization."""
     try:
+        # Get query parameters for filtering
+        party_filter = request.args.get('party', None)
+        
         with get_db_session() as session:
-            # Get all House members with their party info
-            members = session.query(Member).filter(
+            # Get House members with party filtering
+            member_query = session.query(Member).filter(
                 Member.district.isnot(None)  # House members only
-            ).all()
+            )
+            
+            if party_filter:
+                member_query = member_query.filter(Member.party == party_filter)
+            
+            members = member_query.all()
             
             # Count bills sponsored by each member
             member_bill_counts = {}
@@ -749,6 +757,9 @@ def member_network_page(bioguide_id):
 def get_member_network(bioguide_id):
     """Get network data for a specific member with only distance-1 relationships."""
     try:
+        # Get query parameters for filtering
+        party_filter = request.args.get('party', None)
+        
         with get_db_session() as session:
             # Get the target member
             target_member = session.query(Member).filter(
@@ -794,9 +805,20 @@ def get_member_network(bioguide_id):
                     })
             
             # Get all members involved
-            members = session.query(Member).filter(
+            member_query = session.query(Member).filter(
                 Member.member_id_bioguide.in_(member_ids)
-            ).all()
+            )
+            
+            # Apply party filter if specified (but always include the target member)
+            if party_filter:
+                member_query = member_query.filter(
+                    or_(
+                        Member.party == party_filter,
+                        Member.member_id_bioguide == bioguide_id  # Always include target
+                    )
+                )
+            
+            members = member_query.all()
             
             # Create nodes
             nodes = []
