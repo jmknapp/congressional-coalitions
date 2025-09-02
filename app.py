@@ -63,9 +63,9 @@ def load_caucus_data():
             ).all()
             caucus_data['maga_republicans'] = {m.member_id_bioguide for m in maga_members}
             
-            # Load True Blue Democrats members
+            # Load True Blue Democrats members (short_name 'TB' in defaults; also match by full name)
             true_blue_democrats_members = session.query(CaucusMembership).join(Caucus).filter(
-                Caucus.short_name == 'True Blue Democrats',
+                or_(Caucus.short_name == 'TB', Caucus.name == 'True Blue Democrats'),
                 CaucusMembership.end_date.is_(None)
             ).all()
             caucus_data['true_blue_democrats'] = {m.member_id_bioguide for m in true_blue_democrats_members}

@@ -39,14 +39,9 @@
                                class="btn btn-primary">
                                 <i class="fas fa-external-link-alt"></i> Congress.gov
                             </a>
-                            <a href="https://www.govinfo.gov/app/details/BILLS-{{ bill.congress }}{{ bill.type }}{{ bill.number }}" 
-                               target="_blank" rel="noopener noreferrer" 
-                               class="btn btn-secondary">
-                                <i class="fas fa-file-alt"></i> GovInfo Text
-                            </a>
                             <a href="https://www.congress.gov/bill/{{ bill.congress }}-congress/{{ bill.type }}/{{ bill.number }}/text" 
                                target="_blank" rel="noopener noreferrer" 
-                               class="btn btn-info">
+                               class="btn btn-success">
                                 <i class="fas fa-file-text"></i> Bill Text
                             </a>
                         </div>
@@ -73,7 +68,7 @@
                                 <tbody>
                                 {% for c in cosponsors %}
                                     <tr>
-                                        <td>{{ c.member_name }}</td>
+                                        <td><a href="/member/{{ c.member_id }}" target="_blank" rel="noopener noreferrer">{{ c.member_name }}</a></td>
                                         <td><span class="party-badge party-{{ c.party|lower }}">{{ c.party }}</span></td>
                                         <td>{{ c.state }}</td>
                                         <td>{{ c.date }}</td>

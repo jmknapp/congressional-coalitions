@@ -62,7 +62,7 @@
                         <tbody>
                         {% for v in votes %}
                             <tr>
-                                <td>{{ v.member_name }}</td>
+                                <td><a href="/member/{{ v.member_id }}" target="_blank" rel="noopener noreferrer">{{ v.member_name }}</a></td>
                                 <td><span class="party-badge party-{{ v.party|lower }}">{{ v.party }}</span></td>
                                 <td>{{ v.state }}</td>
                                 <td><span class="vote-badge vote-{{ v.vote_code|lower }}">{{ v.vote_code }}</span></td>

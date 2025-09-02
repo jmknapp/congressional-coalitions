@@ -71,7 +71,7 @@ def setup_caucus_tables():
                     'name': 'Freedom Caucus',
                     'short_name': 'Freedom Caucus',
                     'description': 'Conservative Republican caucus',
-                    'color': '#dc3545',
+                    'color': '#e91e63',
                     'icon': 'fas fa-flag'
                 },
                 {

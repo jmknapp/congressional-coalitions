@@ -123,6 +123,14 @@ body {
     min-width: 80px;
 }
 
+/* Bills table column widths */
+#bills-table th:nth-child(2),
+#bills-table td:nth-child(2) {
+    width: 80px !important;
+    max-width: 80px !important;
+    min-width: 80px !important;
+}
+
 .btn-sm {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -231,6 +239,12 @@ body {
 .table-responsive {
     max-height: 400px;
     overflow-y: auto;
+}
+
+/* Freedom Caucus pink badge override */
+.fc-pink-badge {
+    background-color: #e91e63 !important;
+    color: white !important;
 }
 
 /* Responsive adjustments */
