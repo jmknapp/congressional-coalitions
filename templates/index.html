@@ -19,6 +19,9 @@
                 <a class="nav-link" href="/caucus-management" id="caucus-management-link" style="display: none;">
                     <i class="fas fa-users-cog me-1"></i>Caucus Management
                 </a>
+                <a class="nav-link" href="/actblue-management" id="actblue-management-link" style="display: none;">
+                    <i class="fas fa-donate me-1"></i>ActBlue URLs <span class="badge bg-warning text-dark">DEV</span>
+                </a>
                 <!-- Developer Mode Badge -->
                 <span class="navbar-text" id="dev-mode-badge" style="display: none;">
                     <span class="badge bg-warning text-dark ms-2">
@@ -410,7 +413,13 @@
                 caucusLink.style.display = 'block';
             }
             
-            console.log('🚀 Developer Mode ENABLED - Caucus Management available');
+            // Show ActBlue Management link
+            const actblueLink = document.getElementById('actblue-management-link');
+            if (actblueLink) {
+                actblueLink.style.display = 'block';
+            }
+            
+            console.log('🚀 Developer Mode ENABLED - Caucus Management & ActBlue URLs available');
         }
         
         function disableDeveloperMode() {
@@ -429,7 +438,13 @@
                 caucusLink.style.display = 'none';
             }
             
-            console.log('🔒 Developer Mode DISABLED - Caucus Management hidden');
+            // Hide ActBlue Management link
+            const actblueLink = document.getElementById('actblue-management-link');
+            if (actblueLink) {
+                actblueLink.style.display = 'none';
+            }
+            
+            console.log('🔒 Developer Mode DISABLED - Management tools hidden');
         }
         
         // Show current mode in console on page load

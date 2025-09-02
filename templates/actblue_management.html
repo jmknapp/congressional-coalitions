@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ActBlue URL Management - 119th Congress Analysis, House of Representatives</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .dev-badge {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .url-status {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .url-verified {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .url-missing {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .search-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .member-row {
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .member-row:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .url-input {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-university me-2"></i>
+                119th Congress Analysis, House of Representatives
+                <span class="dev-badge">DEV</span>
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/caucus-management">
+                    <i class="fas fa-users me-1"></i>Caucus Management
+                </a>
+                <a class="nav-link active" href="/actblue-management">
+                    <i class="fas fa-donate me-1"></i>ActBlue Management
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8">
+                <h1>
+                    <i class="fas fa-donate text-primary me-2"></i>
+                    ActBlue URL Management
+                    <span class="dev-badge">DEV MODE</span>
+                </h1>
+                <p class="text-muted">Manage verified ActBlue donation URLs for Democratic House members</p>
+            </div>
+            <div class="col-md-4">
+                <div class="stats-card text-center">
+                    <h3 class="mb-1" id="verified-count">0</h3>
+                    <small>Verified URLs</small>
+                    <hr class="my-2" style="border-color: rgba(255,255,255,0.3);">
+                    <h3 class="mb-1" id="total-count">0</h3>
+                    <small>Total Democratic Members</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search and Filter -->
+        <div class="search-box">
+            <div class="row">
+                <div class="col-md-6">
+                    <input type="text" id="search-input" class="form-control" placeholder="Search by name or state...">
+                </div>
+                <div class="col-md-3">
+                    <select id="status-filter" class="form-select">
+                        <option value="">All Members</option>
+                        <option value="verified">Verified URLs</option>
+                        <option value="missing">Missing URLs</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="state-filter" class="form-select">
+                        <option value="">All States</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Members Table -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-users me-2"></i>Democratic House Members
+                </h5>
+                <button class="btn btn-success btn-sm" onclick="saveAllChanges()">
+                    <i class="fas fa-save me-1"></i>Save All Changes
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 200px;">Member</th>
+                                <th style="width: 80px;">State</th>
+                                <th style="width: 60px;">District</th>
+                                <th style="width: 100px;">Status</th>
+                                <th>ActBlue URL</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="members-tbody">
+                            <!-- Members will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <div class="alert alert-info">
+                <h6><i class="fas fa-info-circle me-2"></i>How to Find ActBlue URLs:</h6>
+                <ul class="mb-0">
+                    <li><strong>ActBlue Directory Search:</strong> Direct search in ActBlue's candidate directory (recommended)</li>
+                    <li><strong>Google Search:</strong> Use for targeted searches when directory doesn't work</li>
+                    <li><strong>Browse Directory:</strong> Manual browsing of <a href="https://secure.actblue.com/directory/all/party" target="_blank">all candidates</a></li>
+                    <li><strong>Official Websites:</strong> Check member's campaign website for ActBlue links</li>
+                    <li><strong>Format:</strong> Use full URLs like <code>https://secure.actblue.com/donate/candidate-name</code></li>
+                    <li><strong>Test First:</strong> Always click "Test URL" before saving to verify it works</li>
+                </ul>
+            </div>
+            
+            <div class="alert alert-success">
+                <h6><i class="fas fa-check-circle me-2"></i>ActBlue Search Fixed!</h6>
+                <p class="mb-0">ActBlue directory search now uses the correct URL format: <code>directory?query=lastname</code></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let membersData = [];
+        let changedMembers = new Set();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadMembers();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            document.getElementById('search-input').addEventListener('input', filterMembers);
+            document.getElementById('status-filter').addEventListener('change', filterMembers);
+            document.getElementById('state-filter').addEventListener('change', filterMembers);
+        }
+
+        async function loadMembers() {
+            try {
+                showLoading();
+                const response = await fetch('/api/actblue/members');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    membersData = data.members;
+                    populateStateFilter();
+                    displayMembers(membersData);
+                    updateStats();
+                } else {
+                    showError('Failed to load members: ' + data.error);
+                }
+            } catch (error) {
+                showError('Error loading members: ' + error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function populateStateFilter() {
+            const stateFilter = document.getElementById('state-filter');
+            const states = [...new Set(membersData.map(m => m.state))].sort();
+            
+            // Clear existing options except "All States"
+            stateFilter.innerHTML = '<option value="">All States</option>';
+            
+            states.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                stateFilter.appendChild(option);
+            });
+        }
+
+        function displayMembers(members) {
+            const tbody = document.getElementById('members-tbody');
+            tbody.innerHTML = '';
+
+            members.forEach(member => {
+                const row = createMemberRow(member);
+                tbody.appendChild(row);
+            });
+        }
+
+        function createMemberRow(member) {
+            const row = document.createElement('tr');
+            row.className = 'member-row';
+            
+            const hasUrl = member.actblue_url && member.actblue_url.trim();
+            const statusClass = hasUrl ? 'url-verified' : 'url-missing';
+            const statusText = hasUrl ? 'Verified' : 'Missing';
+            
+            row.innerHTML = `
+                <td>
+                    <strong>${member.name}</strong><br>
+                    <small class="text-muted">${member.bioguide_id}</small>
+                </td>
+                <td>${member.state}</td>
+                <td>${member.district}</td>
+                <td>
+                    <span class="url-status ${statusClass}">${statusText}</span>
+                </td>
+                <td>
+                    <input type="url" class="form-control url-input" 
+                           value="${member.actblue_url || ''}" 
+                           placeholder="https://secure.actblue.com/donate/..."
+                           data-bioguide-id="${member.bioguide_id}"
+                           onchange="markChanged('${member.bioguide_id}')">
+                </td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" onclick="updateMember('${member.bioguide_id}')" title="Update URL">
+                            <i class="fas fa-save"></i>
+                        </button>
+                        <button class="btn btn-outline-info" onclick="testUrl('${member.bioguide_id}')" title="Test URL">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                                                                <div class="dropdown">
+                                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Search Options">
+                                                <i class="fas fa-search"></i>
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li><a class="dropdown-item" href="#" onclick="searchGoogle('${member.name}')">
+                                                    <i class="fab fa-google me-2"></i>Google Search
+                                                </a></li>
+                                                <li><a class="dropdown-item" href="#" onclick="searchActBlueDirectory('${member.name}')">
+                                                    <i class="fas fa-search me-2"></i>Search ActBlue Directory
+                                                </a></li>
+                                                <li><a class="dropdown-item" href="https://secure.actblue.com/directory/all/party" target="_blank">
+                                                    <i class="fas fa-list me-2"></i>Browse All Candidates
+                                                </a></li>
+                                                <li><a class="dropdown-item" href="#" onclick="searchOfficialSite('${member.name}')">
+                                                    <i class="fas fa-globe me-2"></i>Official Website
+                                                </a></li>
+                                            </ul>
+                                        </div>
+                    </div>
+                </td>
+            `;
+            
+            return row;
+        }
+
+        function markChanged(bioguideId) {
+            changedMembers.add(bioguideId);
+            updateSaveButton();
+        }
+
+        function updateSaveButton() {
+            const saveButton = document.querySelector('button[onclick="saveAllChanges()"]');
+            if (changedMembers.size > 0) {
+                saveButton.innerHTML = `<i class="fas fa-save me-1"></i>Save ${changedMembers.size} Changes`;
+                saveButton.classList.remove('btn-success');
+                saveButton.classList.add('btn-warning');
+            } else {
+                saveButton.innerHTML = '<i class="fas fa-save me-1"></i>Save All Changes';
+                saveButton.classList.remove('btn-warning');
+                saveButton.classList.add('btn-success');
+            }
+        }
+
+        async function updateMember(bioguideId) {
+            const input = document.querySelector(`input[data-bioguide-id="${bioguideId}"]`);
+            const url = input.value.trim();
+            
+            try {
+                const response = await fetch('/api/actblue/update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bioguide_id: bioguideId,
+                        actblue_url: url
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showSuccess(data.message);
+                    changedMembers.delete(bioguideId);
+                    updateSaveButton();
+                    
+                    // Update the member data
+                    const member = membersData.find(m => m.bioguide_id === bioguideId);
+                    if (member) {
+                        member.actblue_url = data.actblue_url;
+                    }
+                    
+                    updateStats();
+                    filterMembers(); // Refresh display to update status
+                } else {
+                    showError('Failed to update: ' + data.error);
+                }
+            } catch (error) {
+                showError('Error updating member: ' + error.message);
+            }
+        }
+
+        async function saveAllChanges() {
+            if (changedMembers.size === 0) {
+                showInfo('No changes to save');
+                return;
+            }
+
+            const updates = [];
+            changedMembers.forEach(bioguideId => {
+                const input = document.querySelector(`input[data-bioguide-id="${bioguideId}"]`);
+                updates.push(updateMember(bioguideId));
+            });
+
+            try {
+                await Promise.all(updates);
+                showSuccess(`Saved ${changedMembers.size} changes`);
+            } catch (error) {
+                showError('Some updates failed. Please check individual members.');
+            }
+        }
+
+        function testUrl(bioguideId) {
+            const input = document.querySelector(`input[data-bioguide-id="${bioguideId}"]`);
+            const url = input.value.trim();
+            
+            if (!url) {
+                showError('No URL to test');
+                return;
+            }
+            
+            window.open(url, '_blank');
+        }
+
+        function searchGoogle(memberName) {
+            const searchQuery = encodeURIComponent(`"${memberName}" ActBlue donate congress`);
+            const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
+            window.open(googleUrl, '_blank');
+        }
+        
+        function searchActBlueDirectory(memberName) {
+            // Extract last name for better ActBlue directory search results
+            const nameParts = memberName.split(' ');
+            const lastName = nameParts[nameParts.length - 1].toLowerCase();
+            const actblueUrl = `https://secure.actblue.com/directory?query=${encodeURIComponent(lastName)}`;
+            window.open(actblueUrl, '_blank');
+        }
+        
+        function searchOfficialSite(memberName) {
+            const searchQuery = encodeURIComponent(`"${memberName}" congress official website`);
+            const googleUrl = `https://www.google.com/search?q=${searchQuery}`;
+            window.open(googleUrl, '_blank');
+        }
+
+        function filterMembers() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const statusFilter = document.getElementById('status-filter').value;
+            const stateFilter = document.getElementById('state-filter').value;
+
+            const filteredMembers = membersData.filter(member => {
+                const nameMatch = member.name.toLowerCase().includes(searchTerm) ||
+                                member.state.toLowerCase().includes(searchTerm);
+                
+                const statusMatch = statusFilter === '' || 
+                                  (statusFilter === 'verified' && member.actblue_url) ||
+                                  (statusFilter === 'missing' && !member.actblue_url);
+                
+                const stateMatch = stateFilter === '' || member.state === stateFilter;
+                
+                return nameMatch && statusMatch && stateMatch;
+            });
+
+            displayMembers(filteredMembers);
+        }
+
+        function updateStats() {
+            const verified = membersData.filter(m => m.actblue_url && m.actblue_url.trim()).length;
+            const total = membersData.length;
+            
+            document.getElementById('verified-count').textContent = verified;
+            document.getElementById('total-count').textContent = total;
+        }
+
+        function showLoading() {
+            document.getElementById('members-tbody').innerHTML = `
+                <tr><td colspan="6" class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Loading members...
+                </td></tr>
+            `;
+        }
+
+        function hideLoading() {
+            // Loading will be replaced by actual content
+        }
+
+        function showSuccess(message) {
+            showAlert(message, 'success');
+        }
+
+        function showError(message) {
+            showAlert(message, 'danger');
+        }
+
+        function showInfo(message) {
+            showAlert(message, 'info');
+        }
+
+        function showAlert(message, type) {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            const container = document.querySelector('.container');
+            container.insertAdjacentHTML('afterbegin', alertHtml);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                const alert = container.querySelector('.alert');
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

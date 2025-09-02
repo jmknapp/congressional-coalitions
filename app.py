@@ -1230,7 +1230,8 @@ def get_member_details(bioguide_id):
                     'email': member.email,
                     'phone': member.phone,
                     'website': member.website,
-                    'dc_office': member.dc_office
+                    'dc_office': member.dc_office,
+                    'actblue_url': member.actblue_url
                 },
                 'voting_stats': {
                     'total_votes': total_votes,
@@ -1337,6 +1338,11 @@ def bill_details_page(bill_id):
 def caucus_management_page():
     """Render the caucus management page."""
     return render_template('caucus_management.html')
+
+@app.route('/actblue-management')
+def actblue_management_page():
+    """ActBlue URL management page (dev mode only)."""
+    return render_template('actblue_management.html')
 
 @app.route('/caucus/<int:caucus_id>')
 def caucus_info_page(caucus_id):
@@ -1517,6 +1523,62 @@ def delete_caucus_membership(membership_id):
             session.commit()
             
             return jsonify({'message': 'Membership ended successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ActBlue Management API (Dev Mode)
+@app.route('/api/actblue/members')
+def get_members_for_actblue():
+    """Get Democratic members for ActBlue URL management."""
+    try:
+        with get_db_session() as session:
+            # Get Democratic House members only
+            members = session.query(Member).filter(
+                Member.district.isnot(None),  # House members only
+                Member.party.in_(['D', 'Democrat', 'Democratic'])
+            ).order_by(Member.state, Member.district).all()
+            
+            members_data = []
+            for member in members:
+                members_data.append({
+                    'bioguide_id': member.member_id_bioguide,
+                    'name': f"{member.first} {member.last}",
+                    'state': member.state,
+                    'district': member.district,
+                    'actblue_url': member.actblue_url
+                })
+            
+            return jsonify({'members': members_data})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/actblue/update', methods=['POST'])
+def update_actblue_url():
+    """Update ActBlue URL for a member."""
+    try:
+        data = request.get_json()
+        bioguide_id = data.get('bioguide_id')
+        actblue_url = data.get('actblue_url', '').strip()
+        
+        if not bioguide_id:
+            return jsonify({'error': 'bioguide_id is required'}), 400
+        
+        with get_db_session() as session:
+            member = session.query(Member).filter(
+                Member.member_id_bioguide == bioguide_id
+            ).first()
+            
+            if not member:
+                return jsonify({'error': 'Member not found'}), 404
+            
+            member.actblue_url = actblue_url if actblue_url else None
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'ActBlue URL updated for {member.first} {member.last}',
+                'actblue_url': member.actblue_url
+            })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

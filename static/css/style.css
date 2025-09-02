@@ -307,6 +307,7 @@ body {
 .table-responsive {
     max-height: 400px;
     overflow-y: auto;
+    min-width: 100%;
 }
 
 /* Freedom Caucus LIGHT PINK badge override - maximum specificity */
@@ -350,4 +351,60 @@ a .badge.fc-pink-badge,
     .analysis-metric h3 {
         font-size: 1.5rem;
     }
+}
+
+/* Sponsored Bills table styling - prevent title squashing */
+#sponsored-bills-table {
+    table-layout: fixed;
+}
+
+/* Sponsored Bills table column widths */
+#sponsored-bills-table th:nth-child(1),
+#sponsored-bills-table td:nth-child(1) {
+    width: 120px !important;
+    max-width: 120px !important;
+    min-width: 120px !important;
+}
+
+#sponsored-bills-table th:nth-child(2),
+#sponsored-bills-table td:nth-child(2) {
+    width: 40% !important;
+    min-width: 250px !important;
+}
+
+#sponsored-bills-table th:nth-child(3),
+#sponsored-bills-table td:nth-child(3) {
+    width: 120px !important;
+    max-width: 120px !important;
+    min-width: 120px !important;
+}
+
+#sponsored-bills-table th:nth-child(4),
+#sponsored-bills-table td:nth-child(4) {
+    width: 100px !important;
+    max-width: 100px !important;
+    min-width: 100px !important;
+}
+
+/* Card header spacing */
+.card .card-header h5 {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+
+
+/* Table cell handling */
+#sponsored-bills-table td,
+#sponsored-bills-table th {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#sponsored-bills-table td:nth-child(2),
+#sponsored-bills-table th:nth-child(2) {
+    white-space: normal;
+    word-wrap: break-word;
 }

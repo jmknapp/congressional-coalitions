@@ -39,6 +39,7 @@ class Member(Base):
     phone = Column(String(20))
     website = Column(String(500))
     dc_office = Column(String(500))
+    actblue_url = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

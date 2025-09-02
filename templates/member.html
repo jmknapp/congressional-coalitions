@@ -6,7 +6,32 @@
     <title>Member Details - Congressional Coalition Tracker</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="/static/css/style.css?v=2024010307" rel="stylesheet">
+    <link href="/static/css/style.css?v=2024010308" rel="stylesheet">
+    <style>
+        /* Header ActBlue button styling */
+        #actblue-header-link {
+            margin-top: 10px;
+        }
+        
+        #actblue-header-button {
+            white-space: nowrap;
+            min-width: 140px;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            #actblue-header-button {
+                font-size: 0.9rem;
+                padding: 0.375rem 0.75rem;
+                min-width: 120px;
+            }
+            
+            #actblue-header-link {
+                margin-top: 5px;
+                margin-bottom: 10px;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -52,7 +77,7 @@
                                              alt="Member Photo">
                                     </div>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-5">
                                     <h2 id="member-name" class="mb-2"></h2>
                                     <div class="d-flex align-items-center mb-2">
                                         <span id="member-party-badge" class="party-badge me-3"></span>
@@ -89,6 +114,14 @@
                 </a>
                                     </div>
                                     <p id="member-details" class="text-muted mb-0"></p>
+                                </div>
+                                <div class="col-md-3 text-center">
+                                    <!-- ActBlue Donation Button (Header) -->
+                                    <div id="actblue-header-link" style="display: none;">
+                                        <a id="actblue-header-button" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-lg">
+                                            <i class="fas fa-donate me-2"></i>Support
+                                        </a>
+                                    </div>
                                 </div>
                                 <div class="col-md-4 text-end">
                                     <div class="row">
@@ -199,6 +232,12 @@
                                     <div id="contact-office" class="mb-3" style="display: none;">
                                         <strong><i class="fas fa-building me-2 text-warning"></i>DC Office:</strong>
                                         <span id="contact-office-text" class="ms-2"></span>
+                                    </div>
+                                    <div id="actblue-link" class="mb-3" style="display: none;">
+                                        <strong><i class="fas fa-donate me-2 text-primary"></i>Support:</strong>
+                                        <a id="actblue-link-url" href="#" target="_blank" rel="noopener noreferrer" class="ms-2 btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-donate me-1"></i>Donate via ActBlue <i class="fas fa-external-link-alt fa-xs ms-1"></i>
+                                        </a>
                                     </div>
                                 </div>
                             </div>
@@ -478,6 +517,7 @@
             const hasPhone = member.phone && member.phone.trim();
             const hasWebsite = member.website && member.website.trim();
             const hasOffice = member.dc_office && member.dc_office.trim();
+            // ActBlue is now in header, so don't count it for contact section
             
             if (!hasEmail && !hasPhone && !hasWebsite && !hasOffice) {
                 document.getElementById('no-contact-info').style.display = 'block';
@@ -509,6 +549,104 @@
                 document.getElementById('contact-office-text').textContent = member.dc_office;
                 document.getElementById('contact-office').style.display = 'block';
             }
+            
+            // Display ActBlue link for Democratic members
+            if (member.party === 'D' || member.party === 'Democrat' || member.party === 'Democratic') {
+                displayActBlueLink(member);
+                displayActBlueHeaderButton(member);
+            }
+        }
+        
+        function displayActBlueLink(member) {
+            if (member.actblue_url && member.actblue_url.trim()) {
+                // Use verified ActBlue URL from database
+                document.getElementById('actblue-link-url').href = member.actblue_url;
+                document.getElementById('actblue-link-url').innerHTML = `
+                    <i class="fas fa-donate me-1"></i>Donate via ActBlue <i class="fas fa-external-link-alt fa-xs ms-1"></i>
+                `;
+            } else {
+                // Multiple fallback options for finding ActBlue pages
+                showActBlueFallbackOptions(member);
+            }
+            document.getElementById('actblue-link').style.display = 'block';
+        }
+        
+        function displayActBlueHeaderButton(member) {
+            const headerButton = document.getElementById('actblue-header-button');
+            const headerContainer = document.getElementById('actblue-header-link');
+            
+            if (member.actblue_url && member.actblue_url.trim()) {
+                // Use verified ActBlue URL from database
+                headerButton.href = member.actblue_url;
+                headerButton.innerHTML = `<i class="fas fa-donate me-2"></i>Support`;
+                headerButton.className = 'btn btn-primary btn-lg';
+                headerContainer.style.display = 'block';
+            } else {
+                // Show search option in header
+                headerButton.onclick = function() {
+                    // Open multiple search options in new tabs
+                    const searches = [
+                        `https://secure.actblue.com/directory?query=${encodeURIComponent(member.last.toLowerCase())}`,
+                        `https://www.google.com/search?q=${encodeURIComponent(`"${member.first} ${member.last}" ${member.state} ActBlue donate congress`)}`
+                    ];
+                    searches.forEach(url => window.open(url, '_blank'));
+                    return false;
+                };
+                headerButton.href = '#';
+                headerButton.innerHTML = `<i class="fas fa-search me-2"></i>Find ActBlue`;
+                headerButton.className = 'btn btn-outline-primary btn-lg';
+                headerContainer.style.display = 'block';
+            }
+        }
+        
+        function showActBlueFallbackOptions(member) {
+            // Create a dropdown with multiple options for finding ActBlue pages
+            const dropdownHtml = `
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-search me-1"></i>Find ActBlue Page
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="searchActBlueDirectory('${member.first}', '${member.last}')">
+                            <i class="fas fa-search me-2"></i>Search ActBlue Directory
+                        </a></li>
+                        <li><a class="dropdown-item" href="https://secure.actblue.com/directory/all/party" target="_blank">
+                            <i class="fas fa-list me-2"></i>Browse All Candidates
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" onclick="searchGoogle('${member.first}', '${member.last}', '${member.state}')">
+                            <i class="fab fa-google me-2"></i>Google Search
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" onclick="searchOfficialWebsite('${member.first}', '${member.last}', '${member.state}')">
+                            <i class="fas fa-globe me-2"></i>Official Website
+                        </a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="https://www.fec.gov/data/candidates/" target="_blank">
+                            <i class="fas fa-landmark me-2"></i>FEC Database
+                        </a></li>
+                    </ul>
+                </div>
+            `;
+            
+            document.getElementById('actblue-link-url').outerHTML = dropdownHtml;
+        }
+        
+        function searchActBlueDirectory(firstName, lastName) {
+            // Use correct ActBlue directory search format
+            const query = lastName.toLowerCase(); // Search by last name for better results
+            const actblueUrl = `https://secure.actblue.com/directory?query=${encodeURIComponent(query)}`;
+            window.open(actblueUrl, '_blank');
+        }
+        
+        function searchGoogle(firstName, lastName, state) {
+            const query = `"${firstName} ${lastName}" ${state} ActBlue donate congress`;
+            const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+            window.open(googleUrl, '_blank');
+        }
+        
+        function searchOfficialWebsite(firstName, lastName, state) {
+            const query = `"${firstName} ${lastName}" ${state} congress official website`;
+            const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+            window.open(googleUrl, '_blank');
         }
         
         function displaySponsoredBills(bills) {
