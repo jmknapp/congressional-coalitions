@@ -52,3 +52,4 @@ def update_caucus_schema():
 if __name__ == '__main__':
     update_caucus_schema()
     print("\nSchema update complete!")
+

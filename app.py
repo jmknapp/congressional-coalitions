@@ -63,6 +63,13 @@ def load_caucus_data():
             ).all()
             caucus_data['maga_republicans'] = {m.member_id_bioguide for m in maga_members}
             
+            # Load True Blue Democrats members
+            true_blue_democrats_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'True Blue Democrats',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['true_blue_democrats'] = {m.member_id_bioguide for m in true_blue_democrats_members}
+            
             print(f"DEBUG: Loaded CBC data with {len(caucus_data['congressional_black_caucus'])} members")
             print(f"DEBUG: CBC members: {sorted(list(caucus_data['congressional_black_caucus']))}")
             print(f"DEBUG: Loaded MAGA data with {len(caucus_data['maga_republicans'])} members")
@@ -77,7 +84,8 @@ def load_caucus_data():
             'progressive_caucus': set(),
             'blue_dog_coalition': set(),
             'congressional_black_caucus': set(),
-            'maga_republicans': set()
+            'maga_republicans': set(),
+            'true_blue_democrats': set()
         }
     
     return caucus_data
@@ -155,6 +163,7 @@ def get_members():
                 is_blue_dog_coalition = member.member_id_bioguide in caucus_data['blue_dog_coalition']
                 is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
                 is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
+                is_true_blue_democrat = member.member_id_bioguide in caucus_data['true_blue_democrats']
                 
                 # Debug logging for Kaptur
                 if member.first == 'Marcy' and member.last == 'Kaptur':
@@ -176,7 +185,8 @@ def get_members():
                     'is_progressive_caucus': is_progressive_caucus,
                     'is_blue_dog_coalition': is_blue_dog_coalition,
                     'is_maga_republican': is_maga_republican,
-                    'is_congressional_black_caucus': is_congressional_black_caucus
+                    'is_congressional_black_caucus': is_congressional_black_caucus,
+                    'is_true_blue_democrat': is_true_blue_democrat
                 })
             
             # Sort members by last name, then first name
@@ -777,6 +787,7 @@ def get_member_details(bioguide_id):
             is_blue_dog_coalition = member.member_id_bioguide in caucus_data['blue_dog_coalition']
             is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
             is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
+            is_true_blue_democrat = member.member_id_bioguide in caucus_data['true_blue_democrats']
             
             return jsonify({
                 'member': {
@@ -793,7 +804,8 @@ def get_member_details(bioguide_id):
                     'is_progressive_caucus': is_progressive_caucus,
                     'is_blue_dog_coalition': is_blue_dog_coalition,
                     'is_maga_republican': is_maga_republican,
-                    'is_congressional_black_caucus': is_congressional_black_caucus
+                    'is_congressional_black_caucus': is_congressional_black_caucus,
+                    'is_true_blue_democrat': is_true_blue_democrat
                 },
                 'voting_stats': {
                     'total_votes': total_votes,

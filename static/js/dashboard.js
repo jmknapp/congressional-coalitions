@@ -71,6 +71,9 @@ async function loadMembers() {
                 const congressionalBlackCaucusBadge = member.is_congressional_black_caucus ? 
                     '<span class="badge bg-dark text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus Member"><i class="fas fa-users me-1"></i>CBC</span>' : '';
               
+                const trueBlueDemocratsBadge = member.is_true_blue_democrat ? 
+                    '<span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="True Blue Democrat"><i class="fas fa-heart me-1"></i>TB</span>' : '';
+
                 row.innerHTML = `
                     <td>
                         <a href="/member/${member.id}" target="_blank" rel="noopener noreferrer">${member.name}</a>
@@ -79,6 +82,7 @@ async function loadMembers() {
                         ${blueDogCoalitionBadge}
                         ${magaRepublicanBadge}
                         ${congressionalBlackCaucusBadge}
+                        ${trueBlueDemocratsBadge}
                     </td>
                 <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
                 <td>${member.state}</td>
