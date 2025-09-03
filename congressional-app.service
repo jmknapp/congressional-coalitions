@@ -1,0 +1,19 @@
+[Unit]
+Description=Congressional Coalition Tracker
+After=docker.service mysql.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+RemainAfterExit=no
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+ExecStartPre=/usr/bin/docker rm -f congressional-app || true
+ExecStart=/usr/bin/docker run --network host -v /var/run/mysqld:/var/run/mysqld -v /run/mysqld:/run/mysqld --name congressional-app congressional-coalitions
+ExecStop=/usr/bin/docker stop congressional-app || true
+ExecStopPost=/usr/bin/docker rm congressional-app || true
+
+[Install]
+WantedBy=multi-user.target
