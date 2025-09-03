@@ -330,8 +330,24 @@ def get_bills():
                     'last_action_code': row.action_code
                 })
             
-            # Sort bills by last action date descending (most recent first)
-            bill_data.sort(key=lambda x: x['last_action_date'] or '1900-01-01', reverse=True)
+            # Sort bills by last action date descending (most recent first), then by bill number descending
+            def sort_key(bill):
+                date_str = bill.get('last_action_date') or '1900-01-01'
+                bill_id = bill.get('id', '')
+                
+                # Extract bill number safely
+                bill_num = 0
+                if '-' in bill_id:
+                    parts = bill_id.split('-')
+                    if len(parts) > 1 and parts[1].isdigit():
+                        bill_num = int(parts[1])
+                
+                # Return tuple for sorting: (date_for_comparison, bill_number_for_comparison)
+                # We want both descending, so we'll use reverse=True and structure accordingly
+                return (date_str, bill_num)
+            
+            # Sort with reverse=True to get both date and bill number in descending order
+            bill_data.sort(key=sort_key, reverse=True)
             
             # Add cache metadata
             response_data = {
