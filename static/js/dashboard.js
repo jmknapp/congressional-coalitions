@@ -197,11 +197,18 @@ async function loadBills() {
                 }
             }
             
+            // Format sponsor with link to member page if bioguide ID is available
+            let sponsorDisplay = bill.sponsor;
+            if (bill.sponsor_bioguide && bill.sponsor !== 'Unknown') {
+                const memberHref = `/member/${bill.sponsor_bioguide}`;
+                sponsorDisplay = `<a href="${memberHref}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">${bill.sponsor}</a>`;
+            }
+            
             row.innerHTML = `
                 <td>${lastActionDisplay}</td>
                 <td><strong><a href="${billHref}" target="_blank" rel="noopener noreferrer">${bill.type} ${bill.number}</a></strong></td>
                 <td>${(bill.title || '').substring(0, 50)}${(bill.title || '').length > 50 ? '...' : ''}</td>
-                <td>${bill.sponsor}</td>
+                <td>${sponsorDisplay}</td>
                 <td>${bill.cosponsor_count}</td>
             `;
             tbody.appendChild(row);

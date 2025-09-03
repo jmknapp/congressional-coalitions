@@ -183,3 +183,6 @@ config_local.yaml
 # Temporary files
 *.tmp
 *.temp
+
+# Docker build directory
+docker-build/
