@@ -14,6 +14,7 @@ from flask import Flask, render_template, jsonify, request, send_file, Response
 from flask_cors import CORS
 from flask_caching import Cache
 from io import BytesIO
+import re # Added for markdown conversion
 
 # Development mode check
 DEV_MODE = os.environ.get('DEV_MODE', 'false').lower() == 'true'
@@ -1599,6 +1600,86 @@ def update_actblue_url():
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/docs')
+@app.route('/docs/')
+def docs_index():
+    """Serve the documentation index page."""
+    return render_template('docs_index.html')
+
+@app.route('/docs/<path:filename>')
+def docs_file(filename):
+    """Serve documentation files."""
+    try:
+        # Security: only allow .md files and prevent directory traversal
+        if not filename.endswith('.md') or '..' in filename:
+            return "File not found", 404
+        
+        file_path = os.path.join('docs', filename)
+        if not os.path.exists(file_path):
+            return "File not found", 404
+        
+        # Read and convert markdown to HTML
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Simple markdown to HTML conversion (basic)
+        html_content = convert_markdown_to_html(content)
+        
+        return render_template('docs_viewer.html', 
+                             content=html_content, 
+                             filename=filename,
+                             title=get_doc_title(content))
+    except Exception as e:
+        return f"Error reading file: {str(e)}", 500
+
+def convert_markdown_to_html(markdown_text):
+    """Convert markdown to HTML with basic formatting."""
+    # Basic markdown conversion
+    html = markdown_text
+    
+    # Headers
+    html = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+    html = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+    html = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+    
+    # Bold and italic
+    html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+    html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+    
+    # Code blocks
+    html = re.sub(r'```sql\n(.*?)\n```', r'<pre><code class="sql">\1</code></pre>', html, flags=re.DOTALL)
+    html = re.sub(r'```(.*?)\n(.*?)\n```', r'<pre><code class="\1">\2</code></pre>', html, flags=re.DOTALL)
+    
+    # Inline code
+    html = re.sub(r'`(.*?)`', r'<code>\1</code>', html)
+    
+    # Links
+    html = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', html)
+    
+    # Lists
+    html = re.sub(r'^- (.*?)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+    html = re.sub(r'^(\d+)\. (.*?)$', r'<li>\2</li>', html, flags=re.MULTILINE)
+    
+    # Wrap lists in ul/ol tags
+    html = re.sub(r'(<li>.*?</li>)', r'<ul>\1</ul>', html, flags=re.DOTALL)
+    
+    # Paragraphs
+    html = re.sub(r'\n\n', r'</p><p>', html)
+    html = '<p>' + html + '</p>'
+    
+    # Clean up empty paragraphs
+    html = re.sub(r'<p></p>', '', html)
+    
+    return html
+
+def get_doc_title(content):
+    """Extract title from markdown content."""
+    # Look for first # header
+    match = re.search(r'^# (.*?)$', content, re.MULTILINE)
+    if match:
+        return match.group(1)
+    return "Documentation"
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
