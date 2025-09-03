@@ -20,6 +20,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from src.utils.database import get_db_session
 from sqlalchemy import text, or_, and_
 
+# Add scripts to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__)))
+from setup_db import BillSubject
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -151,7 +155,14 @@ class EnhancedDailySponsorsCosponsorsUpdater:
         try:
             response = self.session.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
-                return response.json()
+                bill_data = response.json()
+                
+                # Also fetch subjects if this is new bill data
+                subjects = self.fetch_bill_subjects(congressgov_id)
+                if subjects:
+                    bill_data['subjects'] = subjects
+                
+                return bill_data
             elif response.status_code == 429:
                 logger.warning(f"Rate limit hit for {bill_id}")
                 return "RATE_LIMIT"
@@ -162,11 +173,34 @@ class EnhancedDailySponsorsCosponsorsUpdater:
         
         return None
     
+    def fetch_bill_subjects(self, congressgov_id: str) -> List[str]:
+        """Fetch bill subjects from Congress.gov API."""
+        subjects = []
+        subjects_url = f"https://api.congress.gov/v3/bill/{congressgov_id}/subjects"
+        headers = {'X-API-Key': self.congressgov_api_key}
+        
+        try:
+            response = self.session.get(subjects_url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                if 'subjects' in data and 'legislativeSubjects' in data['subjects']:
+                    for subject in data['subjects']['legislativeSubjects']:
+                        if 'name' in subject:
+                            subjects.append(subject['name'])
+                logger.debug(f"Found {len(subjects)} subjects for {congressgov_id}")
+            else:
+                logger.debug(f"Failed to fetch subjects for {congressgov_id}: {response.status_code}")
+        except Exception as e:
+            logger.debug(f"Error fetching subjects for {congressgov_id}: {e}")
+        
+        return subjects
+    
     def update_bill_data(self, bill_id: str, bill_data: Dict) -> bool:
-        """Update bill sponsor and cosponsors data."""
+        """Update bill sponsor, cosponsors, policy area, and subjects data."""
         try:
             with get_db_session() as session:
                 # Update sponsor if available
+                sponsor_updated = False
                 if 'sponsors' in bill_data.get('bill', {}):
                     sponsors = bill_data['bill']['sponsors']
                     if sponsors and len(sponsors) > 0:
@@ -180,6 +214,44 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                                 'sponsor_bioguide': sponsor_bioguide,
                                 'bill_id': bill_id
                             })
+                            sponsor_updated = True
+                
+                # Update policy area if available
+                policy_area_updated = False
+                if 'policyArea' in bill_data.get('bill', {}):
+                    policy_area = bill_data['bill']['policyArea'].get('name')
+                    if policy_area:
+                        session.execute(text("""
+                            UPDATE bills 
+                            SET policy_area = :policy_area 
+                            WHERE bill_id = :bill_id
+                        """), {
+                            'policy_area': policy_area,
+                            'bill_id': bill_id
+                        })
+                        policy_area_updated = True
+                        logger.debug(f"Updated policy area for {bill_id}: {policy_area}")
+                
+                # Update subjects if available
+                subjects_updated = False
+                if 'subjects' in bill_data:
+                    subjects = bill_data['subjects']
+                    if subjects:
+                        # Delete existing subjects first
+                        session.execute(text("""
+                            DELETE FROM bill_subjects WHERE bill_id = :bill_id
+                        """), {'bill_id': bill_id})
+                        
+                        # Add new subjects
+                        for subject in subjects:
+                            bill_subject = BillSubject(
+                                bill_id=bill_id,
+                                subject_term=subject
+                            )
+                            session.add(bill_subject)
+                        
+                        subjects_updated = True
+                        logger.debug(f"Updated {len(subjects)} subjects for {bill_id}")
                 
                 # Update last_updated timestamp
                 session.execute(text("""
@@ -189,6 +261,19 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                 """), {'bill_id': bill_id})
                 
                 session.commit()
+                
+                # Log what was updated
+                updates = []
+                if sponsor_updated:
+                    updates.append("sponsor")
+                if policy_area_updated:
+                    updates.append("policy_area")
+                if subjects_updated:
+                    updates.append(f"{len(subjects)} subjects")
+                
+                if updates:
+                    logger.info(f"Updated {bill_id}: {', '.join(updates)}")
+                
                 return True
                 
         except Exception as e:
