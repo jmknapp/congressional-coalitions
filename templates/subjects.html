@@ -68,8 +68,10 @@
             <thead>
               <tr>
                 <th>Subject</th>
-                <th>D Yea %</th>
-                <th>R Yea %</th>
+                <th>D Cross %</th>
+                <th>D Cross (n/N)</th>
+                <th>R Cross %</th>
+                <th>R Cross (n/N)</th>
                 <th>Gap</th>
                 <th>Votes</th>
               </tr>
@@ -100,10 +102,16 @@
         tbody.innerHTML = '';
         data.items.forEach(it => {
           const tr = document.createElement('tr');
+          const detailUrl = `/subjects/bills?subject=${encodeURIComponent(it.subject || '')}` +
+                            `&scope=${encodeURIComponent(scope)}` +
+                            `&congress=${encodeURIComponent(congress)}` +
+                            `&exclude_procedural=${excludeProcedural}`;
           tr.innerHTML = `
-            <td>${it.subject || '(Unknown)'}</td>
-            <td>${it.d_yea !== null && it.d_yea !== undefined ? it.d_yea.toFixed(1) + '%' : '-'}</td>
-            <td>${it.r_yea !== null && it.r_yea !== undefined ? it.r_yea.toFixed(1) + '%' : '-'}</td>
+            <td>${it.subject ? `<a href="${detailUrl}">${it.subject}</a>` : '(Unknown)'}</td>
+            <td>${it.d_cross_pct !== null && it.d_cross_pct !== undefined ? it.d_cross_pct.toFixed(1) + '%' : '-'}</td>
+            <td>${it.d_cross ?? '-'} / ${it.d_total ?? '-'}</td>
+            <td>${it.r_cross_pct !== null && it.r_cross_pct !== undefined ? it.r_cross_pct.toFixed(1) + '%' : '-'}</td>
+            <td>${it.r_cross ?? '-'} / ${it.r_total ?? '-'}</td>
             <td>${it.gap !== null && it.gap !== undefined ? it.gap.toFixed(1) + '%' : '-'}</td>
             <td>${it.votes}</td>
           `;
@@ -122,4 +130,3 @@
   </script>
 </body>
 </html>
-

@@ -1692,12 +1692,15 @@ def _is_truthy(val: str) -> bool:
 
 @app.route('/api/subjects/summary')
 def subjects_summary_api():
-    """Return party split and gap per subject.
+    """Return cross-party votes and percentages per subject for D and R.
+
+    Cross-party definition: for a given roll call and party, a vote that
+    goes against that party's majority (ties are ignored for that party/roll call).
 
     Query params:
       - congress: int (default 119)
       - scope: 'policy_area' | 'subject_term' (default 'policy_area')
-      - min_votes: int (default 20)
+      - min_votes: int (default 20)  [applied to combined party totals]
       - chamber: 'house' | 'senate' (default 'house')
       - exclude_procedural: bool (default true)
     """
@@ -1713,12 +1716,153 @@ def subjects_summary_api():
 
         with get_db_session() as session:
             subject_expr = 'b.policy_area' if scope == 'policy_area' else 's.subject_term'
-            join_subject = '' if scope == 'policy_area' else 'JOIN bill_subjects s ON s.bill_id = b.bill_id'
+            join_subject = '' if scope == 'policy_area' else 'LEFT JOIN bill_subjects s ON s.bill_id = b.bill_id'
             subject_not_null = ' AND b.policy_area IS NOT NULL' if scope == 'policy_area' else ' AND s.subject_term IS NOT NULL'
 
             procedural_filter = ''
             if exclude_procedural:
-                # Basic keyword filter on rollcall question
+                procedural_filter = (
+                    " AND ("
+                    " r.question IS NULL OR ("
+                    " r.question NOT LIKE '%rule%' AND"
+                    " r.question NOT LIKE '%previous question%' AND"
+                    " r.question NOT LIKE '%recommit%' AND"
+                    " r.question NOT LIKE '%motion to table%' AND"
+                    " r.question NOT LIKE '%quorum%' AND"
+                    " r.question NOT LIKE '%adjourn%' AND"
+                    " r.question NOT LIKE '%suspend the rules%'"
+                    ") )"
+                )
+
+            # Pull per-vote rows with subject, party and vote code
+            query = f"""
+                SELECT r.rollcall_id AS rc_id,
+                       {subject_expr} AS subject,
+                       m.party AS party,
+                       v.vote_code AS vote_code
+                FROM votes v
+                JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
+                JOIN bills b ON r.bill_id = b.bill_id
+                {join_subject}
+                JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
+                WHERE b.congress = :congress
+                  AND b.chamber = :chamber
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
+                  AND v.vote_code IN ('Yea','Nay')
+                  {subject_not_null}
+                  {procedural_filter}
+            """
+
+            rows = session.execute(text(query), {'congress': congress, 'chamber': chamber}).fetchall()
+
+            # First pass: party-majority by (rollcall, party, subject)
+            from collections import defaultdict
+            counts = defaultdict(lambda: {'Yea': 0, 'Nay': 0})  # key: (rc_id, party_norm, subject)
+            normalized_rows = []
+            for rc_id, subject, party, vote_code in rows:
+                if not subject:
+                    continue
+                # Normalize party to D/R where possible
+                p = (party or '').upper()
+                if p in ('DEM', 'DEMOCATIC', 'DEMOCRATIC', 'D'):
+                    p = 'D'
+                elif p in ('REP', 'REPUBLICAN', 'R'):
+                    p = 'R'
+                else:
+                    # Ignore other parties in cross-party calc
+                    continue
+                counts[(rc_id, p, subject)][vote_code] += 1
+                normalized_rows.append((rc_id, subject, p, vote_code))
+
+            majority = {}
+            for key, d in counts.items():
+                if d['Yea'] > d['Nay']:
+                    majority[key] = 'Yea'
+                elif d['Nay'] > d['Yea']:
+                    majority[key] = 'Nay'
+                else:
+                    majority[key] = None  # tie -> ignore
+
+            # Second pass: accumulate cross-party counts per (subject, party)
+            agg = defaultdict(lambda: {'D': {'cross': 0, 'total': 0}, 'R': {'cross': 0, 'total': 0}})
+            for rc_id, subject, p, vote_code in normalized_rows:
+                maj = majority.get((rc_id, p, subject))
+                if not maj:
+                    continue  # skip ties for that party/roll call
+                agg[subject][p]['total'] += 1
+                if vote_code != maj:
+                    agg[subject][p]['cross'] += 1
+
+            # Build list with cross-party percentages; enforce combined min_votes
+            items = []
+            for subject, data in agg.items():
+                votes_combined = data['D']['total'] + data['R']['total']
+                if votes_combined < min_votes:
+                    continue
+                def pct(c, t):
+                    return round((c / t) * 100, 1) if t else None
+                d_pct = pct(data['D']['cross'], data['D']['total'])
+                r_pct = pct(data['R']['cross'], data['R']['total'])
+                gap = None
+                if d_pct is not None and r_pct is not None:
+                    gap = round(abs(d_pct - r_pct), 1)
+                items.append({
+                    'subject': subject,
+                    'd_cross_pct': d_pct,
+                    'd_cross': data['D']['cross'],
+                    'd_total': data['D']['total'],
+                    'r_cross_pct': r_pct,
+                    'r_cross': data['R']['cross'],
+                    'r_total': data['R']['total'],
+                    'gap': gap,
+                    'votes': votes_combined
+                })
+
+            # Sort by gap desc, then votes desc
+            items.sort(key=lambda x: ((x['gap'] is not None), (x['gap'] or -1), x['votes']), reverse=True)
+            return jsonify({'congress': congress, 'scope': scope, 'chamber': chamber, 'min_votes': min_votes, 'exclude_procedural': exclude_procedural, 'items': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/subjects')
+def subjects_summary_page():
+    """Render an HTML table of subjects and party splits."""
+    try:
+        # Defaults mirror the API
+        return render_template('subjects.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/subjects/bills')
+def subjects_bills_page():
+    """List bills with votes for a given subject.
+
+    Query params: subject (required), scope=policy_area|subject_term, congress=119,
+    chamber=house, exclude_procedural=true|false
+    """
+    try:
+        subject = request.args.get('subject')
+        if not subject:
+            return f"Error: missing subject", 400
+        scope = request.args.get('scope', 'policy_area')
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+
+        if scope not in ('policy_area', 'subject_term'):
+            scope = 'policy_area'
+
+        with get_db_session() as session:
+            join_subject = ''
+            where_subject = ''
+            if scope == 'policy_area':
+                where_subject = ' AND b.policy_area = :subject'
+            else:
+                join_subject = ' JOIN bill_subjects s ON s.bill_id = b.bill_id'
+                where_subject = ' AND s.subject_term = :subject'
+
+            procedural_filter = ''
+            if exclude_procedural:
                 procedural_filter = (
                     " AND ("
                     " r.question IS NULL OR ("
@@ -1733,70 +1877,41 @@ def subjects_summary_api():
                 )
 
             query = f"""
-                SELECT {subject_expr} AS subject,
-                       m.party AS party,
-                       SUM(CASE WHEN v.vote_code = 'Yea' THEN 1 ELSE 0 END) AS yea,
-                       SUM(CASE WHEN v.vote_code IN ('Yea','Nay') THEN 1 ELSE 0 END) AS total
-                FROM votes v
-                JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
-                JOIN bills b ON r.bill_id = b.bill_id
+                SELECT b.bill_id, b.title, b.policy_area,
+                       COUNT(DISTINCT r.rollcall_id) AS rollcall_count
+                FROM bills b
+                JOIN rollcalls r ON r.bill_id = b.bill_id
                 {join_subject}
-                JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
                 WHERE b.congress = :congress
                   AND b.chamber = :chamber
                   AND b.bill_id LIKE CONCAT('%-', :congress)
-                  AND v.vote_code IN ('Yea','Nay')
-                  {subject_not_null}
+                  {where_subject}
                   {procedural_filter}
-                GROUP BY subject, m.party
+                GROUP BY b.bill_id, b.title, b.policy_area
+                HAVING rollcall_count > 0
+                ORDER BY rollcall_count DESC, b.title ASC
+                LIMIT 500
             """
 
-            rows = session.execute(text(query), {'congress': congress, 'chamber': chamber}).fetchall()
+            rows = session.execute(
+                text(query),
+                {'subject': subject, 'congress': congress, 'chamber': chamber}
+            ).fetchall()
 
-            # Aggregate into subject-level records combining parties
-            by_subject = {}
-            for row in rows:
-                subject = row.subject
-                party = (row.party or '').upper()
-                yea = int(row.yea or 0)
-                total = int(row.total or 0)
-                if subject not in by_subject:
-                    by_subject[subject] = {'subject': subject, 'votes': 0, 'D': {'yea': 0, 'total': 0}, 'R': {'yea': 0, 'total': 0}}
-                by_subject[subject]['votes'] += total
-                if party in ('D', 'R'):
-                    by_subject[subject][party]['yea'] += yea
-                    by_subject[subject][party]['total'] += total
+            bills = [{
+                'bill_id': row.bill_id,
+                'title': row.title,
+                'policy_area': row.policy_area,
+                'rollcall_count': int(row.rollcall_count or 0)
+            } for row in rows]
 
-            # Build list with rates and gaps; enforce min_votes
-            items = []
-            for subj, data in by_subject.items():
-                if data['votes'] < min_votes:
-                    continue
-                d_rate = (data['D']['yea'] / data['D']['total']) if data['D']['total'] else None
-                r_rate = (data['R']['yea'] / data['R']['total']) if data['R']['total'] else None
-                gap = None
-                if d_rate is not None and r_rate is not None:
-                    gap = abs(d_rate - r_rate)
-                items.append({
-                    'subject': subj,
-                    'd_yea': round(d_rate * 100, 1) if d_rate is not None else None,
-                    'r_yea': round(r_rate * 100, 1) if r_rate is not None else None,
-                    'gap': round(gap * 100, 1) if gap is not None else None,
-                    'votes': data['votes']
-                })
-
-            # Sort by gap desc, then votes desc
-            items.sort(key=lambda x: (x['gap'] is not None, x['gap'] or -1, x['votes']), reverse=True)
-            return jsonify({'congress': congress, 'scope': scope, 'chamber': chamber, 'min_votes': min_votes, 'exclude_procedural': exclude_procedural, 'items': items})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/subjects')
-def subjects_summary_page():
-    """Render an HTML table of subjects and party splits."""
-    try:
-        # Defaults mirror the API
-        return render_template('subjects.html')
+            return render_template('subject_bills.html',
+                                   subject=subject,
+                                   scope=scope,
+                                   congress=congress,
+                                   chamber=chamber,
+                                   exclude_procedural=exclude_procedural,
+                                   bills=bills)
     except Exception as e:
         return f"Error: {str(e)}", 500
 
