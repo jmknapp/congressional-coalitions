@@ -30,6 +30,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h3>Vote Pattern Clusters</h3>
       <div class="d-flex gap-2">
+        <select id="svdDims" class="form-select form-select-sm" style="width:120px">
+          <option value="2" selected>SVD(2)</option>
+          <option value="3">SVD(3)</option>
+        </select>
         <input id="subject" class="form-control form-control-sm" style="width:220px; display:none" placeholder="Subject term(s); comma-separated"/>
         <select id="subjectTerm" class="form-select form-select-sm" style="width:220px; display:none">
           <option value="">All subject terms</option>
@@ -41,12 +45,18 @@
           <option value="policy_area" selected>Policy Area</option>
           <option value="subject_term">Subject Term</option>
         </select>
-        <select id="k" class="form-select form-select-sm" style="width:100px">
+        <select id="k" class="form-select form-select-sm" style="width:120px">
+          <option value="2">k=2</option>
+          <option value="3">k=3</option>
           <option value="4">k=4</option>
           <option value="5" selected>k=5</option>
           <option value="6">k=6</option>
+          <option value="7">k=7</option>
           <option value="8">k=8</option>
+          <option value="9">k=9</option>
+          <option value="10">k=10</option>
         </select>
+        <button id="btnSuggestK" class="btn btn-sm btn-outline-primary">Suggest k</button>
         <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" id="excludeProcedural" checked>
           <label class="form-check-label" for="excludeProcedural">Exclude procedural</label>
@@ -76,11 +86,41 @@
               <input class="form-check-input" type="radio" name="colorBy" id="colorByCluster" value="cluster">
               <label class="form-check-label" for="colorByCluster">Color by cluster</label>
             </div>
+            <hr>
+            <div class="mb-2">Axis details</div>
+            <div class="d-flex gap-2 align-items-center mb-2">
+              <select id="axisSelect" class="form-select form-select-sm" style="width:120px">
+                <option value="1" selected>Axis 1</option>
+                <option value="2">Axis 2</option>
+                <option value="3">Axis 3</option>
+              </select>
+              <button id="btnDescribeAxis" class="btn btn-sm btn-outline-secondary">Describe</button>
+            </div>
+            <div id="axis-summary" class="small"></div>
           </div>
         </div>
         <div class="card">
           <div class="card-body small text-muted">
             <p class="mb-1">This MVP uses SVD(2) for coordinates and KMeans for grouping. Filters: House, 119th.</p>
+            <div id="k-metrics" class="small"></div>
+            <hr>
+            <div class="mb-2">Cluster details</div>
+            <div class="d-flex gap-2 align-items-center mb-2">
+              <select id="clusterSelect" class="form-select form-select-sm" style="width:120px">
+                <option value="0" selected>Cluster 0</option>
+                <option value="1">Cluster 1</option>
+                <option value="2">Cluster 2</option>
+                <option value="3">Cluster 3</option>
+                <option value="4">Cluster 4</option>
+                <option value="5">Cluster 5</option>
+                <option value="6">Cluster 6</option>
+                <option value="7">Cluster 7</option>
+                <option value="8">Cluster 8</option>
+                <option value="9">Cluster 9</option>
+              </select>
+              <button id="btnDescribeCluster" class="btn btn-sm btn-outline-secondary">Describe cluster</button>
+            </div>
+            <div id="cluster-summary" class="small"></div>
           </div>
         </div>
       </div>
@@ -97,6 +137,11 @@
     const VB_W = 800, VB_H = 600;
     let zScale = 1.0, zTx = 0, zTy = 0; // transform in viewBox units
     let isPanning = false, panLast = {x:0,y:0};
+    // rotation state for SVD(3)
+    let isRotating = false, rotLast = {x:0,y:0};
+    let yawDeg = 35, pitchDeg = 20; // defaults; shift+drag adjusts these
+    // normalized zero positions for axes from API
+    let normZeros = {x0:0.5, y0:0.5, z0:0.5};
     function updateTransform(){
       const content = document.getElementById('content');
       if (content) content.setAttribute('transform', `translate(${zTx},${zTy}) scale(${zScale})`);
@@ -122,10 +167,13 @@
         return;
       }
       const data = await res.json();
+      if (data.norm_zeros) normZeros = data.norm_zeros;
       render(data.items || []);
     }
 
+    let currentItems = [];
     function render(items){
+      currentItems = items;
       const svg = document.getElementById('plot');
       while(svg.firstChild) svg.removeChild(svg.firstChild);
       const w=800,h=600, pad=30;
@@ -138,12 +186,80 @@
       axes.innerHTML = `<line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#ddd"/>\n                        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}" stroke="#ddd"/>`;
       content.appendChild(axes);
 
+      // principal axes through SVD zero (if provided)
+      const dimsAxes = parseInt(document.getElementById('svdDims').value||'2',10);
+      const axes0 = document.createElementNS('http://www.w3.org/2000/svg','g');
+      axes0.setAttribute('opacity','0.9');
+      const x0n = (normZeros?.x0 ?? 0.5);
+      const y0n = (normZeros?.y0 ?? 0.5);
+      const z0n = (normZeros?.z0 ?? 0.5);
+      if (dimsAxes === 2){
+        const vx = pad + x0n*(w-2*pad);
+        const vy = pad + (1-y0n)*(h-2*pad);
+        const vline = document.createElementNS('http://www.w3.org/2000/svg','line');
+        vline.setAttribute('x1', vx); vline.setAttribute('x2', vx);
+        vline.setAttribute('y1', pad); vline.setAttribute('y2', h-pad);
+        vline.setAttribute('stroke', '#aaa'); vline.setAttribute('stroke-dasharray', '4,3');
+        const hline = document.createElementNS('http://www.w3.org/2000/svg','line');
+        hline.setAttribute('x1', pad); hline.setAttribute('x2', w-pad);
+        hline.setAttribute('y1', vy); hline.setAttribute('y2', vy);
+        hline.setAttribute('stroke', '#aaa'); hline.setAttribute('stroke-dasharray', '4,3');
+        axes0.appendChild(vline); axes0.appendChild(hline);
+      } else {
+        const yaw = yawDeg * Math.PI/180, pitch = pitchDeg * Math.PI/180;
+        function proj(nx, ny, nz){
+          let x = (nx - 0.5), y = (ny - 0.5), z = (nz - 0.5);
+          let y1 = y*Math.cos(pitch) - z*Math.sin(pitch);
+          let z1 = y*Math.sin(pitch) + z*Math.cos(pitch);
+          let x2 = x*Math.cos(yaw) + z1*Math.sin(yaw);
+          const sx = pad + (x2+0.5)*(w-2*pad);
+          const sy = pad + (0.5 - y1)*(h-2*pad);
+          return {x:sx, y:sy};
+        }
+        const p0 = proj(x0n,y0n,z0n);
+        const px = proj(1,y0n,z0n);
+        const py = proj(x0n,1,z0n);
+        const pz = proj(x0n,y0n,1);
+        function addLine(a,b,color){
+          const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+          ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
+          ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
+          ln.setAttribute('stroke', color); ln.setAttribute('stroke-dasharray','4,3');
+          axes0.appendChild(ln);
+        }
+        addLine(p0, px, '#a66'); // X axis
+        addLine(p0, py, '#6a6'); // Y axis
+        addLine(p0, pz, '#66a'); // Z axis
+      }
+      content.appendChild(axes0);
+
       const colorBy = document.querySelector('input[name="colorBy"]:checked').value;
       const makeColor = (d)=> colorBy==='party' ? partyColors[(d.party||'').substring(0,1).toUpperCase()] : clusterColor(d.cluster);
 
+      const dimsPlot = parseInt(document.getElementById('svdDims').value||'2',10);
+      const yaw = yawDeg * Math.PI/180, pitch = pitchDeg * Math.PI/180; // current 3D view
+      function project(d){
+        if (dimsPlot !== 3 || d.z === null || d.z === undefined) {
+          return {x: pad + d.x*(w-2*pad), y: pad + (1-d.y)*(h-2*pad)};
+        }
+        // 3D point in [0,1]^3 mapped to centered coordinates then rotated
+        let x = (d.x - 0.5), y = (d.y - 0.5), z = (d.z - 0.5);
+        // rotate around X (pitch)
+        let y1 = y*Math.cos(pitch) - z*Math.sin(pitch);
+        let z1 = y*Math.sin(pitch) + z*Math.cos(pitch);
+        // rotate around Y (yaw)
+        let x2 = x*Math.cos(yaw) + z1*Math.sin(yaw);
+        let z2 = -x*Math.sin(yaw) + z1*Math.cos(yaw);
+        // map back to [0,1] with some depth scaling (optional)
+        const sx = pad + (x2+0.5)*(w-2*pad);
+        const sy = pad + (0.5 - y1)*(h-2*pad);
+        return {x:sx, y:sy, depth:z2};
+      }
+
       items.forEach(d=>{
-        const cx = pad + d.x*(w-2*pad);
-        const cy = pad + (1-d.y)*(h-2*pad);
+        const p = project(d);
+        const cx = p.x;
+        const cy = p.y;
         const circ = document.createElementNS('http://www.w3.org/2000/svg','circle');
         circ.setAttribute('cx',cx);
         circ.setAttribute('cy',cy);
@@ -265,6 +381,97 @@
     document.getElementById('scope').addEventListener('change', toggleSubjectInputs);
     document.getElementById('colorByParty').addEventListener('change', load);
     document.getElementById('colorByCluster').addEventListener('change', load);
+    document.getElementById('svdDims').addEventListener('change', ()=>{ render(currentItems); });
+    document.getElementById('btnSuggestK').addEventListener('click', async ()=>{
+      const excludeProcedural = document.getElementById('excludeProcedural').checked;
+      const scope = document.getElementById('scope').value;
+      const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+      const url = `/api/clusters/auto-k?exclude_procedural=${excludeProcedural}` +
+                  (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
+      const res = await fetch(url);
+      const pane = document.getElementById('k-metrics');
+      if(!res.ok){ pane.textContent = 'Auto-k error'; return; }
+      const data = await res.json();
+      if (data.suggested_k){
+        document.getElementById('k').value = String(data.suggested_k);
+        // Show top 4 ks by silhouette
+        const sorted = (data.metrics||[]).slice().sort((a,b)=>b.silhouette-a.silhouette).slice(0,4);
+        pane.innerHTML = `Suggested k: <strong>${data.suggested_k}</strong> (silhouette ${(sorted[0]?.silhouette||0).toFixed(3)})<br>` +
+          sorted.map(r=>`k=${r.k} — sil=${r.silhouette.toFixed(3)}, CH=${Math.round(r.calinski_harabasz)}, DB=${r.davies_bouldin.toFixed(2)}`).join('<br>');
+        load();
+      } else {
+        pane.textContent = 'No suggestion available';
+      }
+    });
+
+    document.getElementById('btnDescribeAxis').addEventListener('click', async ()=>{
+      const dims = document.getElementById('svdDims').value;
+      const axis = parseInt(document.getElementById('axisSelect').value,10);
+      const excludeProcedural = document.getElementById('excludeProcedural').checked;
+      const scope = document.getElementById('scope').value;
+      const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+      const url = `/api/svd/components?dims=${dims}&exclude_procedural=${excludeProcedural}` +
+                  (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
+      const res = await fetch(url);
+      const pane = document.getElementById('axis-summary');
+      if(!res.ok){ pane.textContent = 'Axis summary error'; return; }
+      const data = await res.json();
+      const comps = data.components || [];
+      const comp = comps[axis-1];
+      if(!comp){ pane.textContent = 'No component data available'; return; }
+      function listRC(rows){
+        return rows.slice(0,5).map(r=>{
+          const link = r.bill_id ? `<a href="/vote/${r.rollcall_id}" target="_blank">${r.rollcall_id}</a>` : r.rollcall_id;
+          const bill = r.bill_id ? `<div class=\"text-muted\"><a href=\"/bill/${r.bill_id}\" target=\"_blank\">${r.title||r.bill_id}</a></div>` : '';
+          const ps = r.party_split || {}; const d = ps.D||{}; const rr = ps.R||{};
+          const split = (d.yea_pct!==undefined && rr.yea_pct!==undefined) ? ` D Yea ${d.yea_pct}% | R Yea ${rr.yea_pct}%` : '';
+          return `<div class=\"mb-1\"><strong>${link}</strong> · w=${r.weight} ${split}<div>${r.question||''}</div>${bill}</div>`;
+        }).join('');
+      }
+      function listKV(rows){ return rows.slice(0,5).map(x=>`${x.name} (${x.score.toFixed?x.score.toFixed(2):x.score})`).join(', '); }
+      const html = `
+        <div><strong>Axis ${axis}</strong></div>
+        <div class=\"mt-2\"><em>Top positive roll calls</em>${listRC(comp.top_rollcalls_pos)}</div>
+        <div class=\"mt-2\"><em>Top negative roll calls</em>${listRC(comp.top_rollcalls_neg)}</div>
+        <div class=\"mt-2\"><em>Policy areas</em><br>+ ${listKV(comp.policy_area_pos)}<br>- ${listKV(comp.policy_area_neg)}</div>
+        <div class=\"mt-2\"><em>Subject terms</em><br>+ ${listKV(comp.subject_term_pos)}<br>- ${listKV(comp.subject_term_neg)}</div>
+      `;
+      pane.innerHTML = html;
+    });
+
+    document.getElementById('btnDescribeCluster').addEventListener('click', async ()=>{
+      const excludeProcedural = document.getElementById('excludeProcedural').checked;
+      const scope = document.getElementById('scope').value;
+      const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+      const k = document.getElementById('k').value;
+      const url = `/api/clusters/summary?exclude_procedural=${excludeProcedural}&k=${k}` +
+                  (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
+      const res = await fetch(url);
+      const pane = document.getElementById('cluster-summary');
+      if(!res.ok){ pane.textContent = 'Cluster summary error'; return; }
+      const data = await res.json();
+      const cid = parseInt(document.getElementById('clusterSelect').value,10) || 0;
+      const c = (data.clusters||[]).find(x=>x.id===cid);
+      if(!c){ pane.textContent = 'No data for this cluster'; return; }
+      const party = c.party||{}; const cauc = c.caucuses||{};
+      const states = (c.top_states||[]).map(s=>`${s.state} (${s.count})`).join(', ');
+      const ex = (c.exemplars||[]).map(m=>`${m.name} (${m.party||''})`).join(', ');
+      const edges = (c.edge_members||[]).map(m=>`${m.name} (${m.party||''})`).join(', ');
+      function listKV(rows){ return (rows||[]).slice(0,6).map(x=>`${x.name} (${x.score})`).join(', '); }
+      function rcList(rows){
+        return (rows||[]).slice(0,5).map(r=>`<div class=\"mb-1\"><a href=\"/vote/${r.rollcall_id}\" target=\"_blank\">${r.rollcall_id}</a> · Δ=${r.delta} · ${r.question||''}<div class=\"text-muted\">${r.title||''}</div></div>`).join('');
+      }
+      pane.innerHTML = `
+        <div><strong>Cluster ${c.id}</strong> · size ${c.size} · party D ${party.D||0}, R ${party.R||0}, other ${party.other||0}</div>
+        <div class=\"mt-2\">Top states: ${states||'-'}</div>
+        <div class=\"mt-2\">Caucuses: FC ${cauc.fc}, PC ${cauc.pc}, BD ${cauc.bd}, MAGA ${cauc.maga}, CBC ${cauc.cbc}, TB ${cauc.tb}</div>
+        <div class=\"mt-2\"><em>Policy areas</em><br>+ ${listKV(c.policy_area_pos)}<br>- ${listKV(c.policy_area_neg)}</div>
+        <div class=\"mt-2\"><em>Subject terms</em><br>+ ${listKV(c.subject_term_pos)}<br>- ${listKV(c.subject_term_neg)}</div>
+        <div class=\"mt-2\"><em>Anchor roll calls (largest Δ Yea% vs others)</em>${rcList(c.anchor_rollcalls)}</div>
+        <div class=\"mt-2\"><em>Exemplars</em>: ${ex||'-'}</div>
+        <div class=\"mt-2\"><em>Edge members</em>: ${edges||'-'}</div>
+      `;
+    });
     document.addEventListener('DOMContentLoaded', () => {
       toggleSubjectInputs();
       load();
@@ -286,14 +493,34 @@
       }, { passive: false });
       // Mouse drag pan
       svg.addEventListener('mousedown', (e)=>{
-        isPanning = true;
-        panLast.x = e.clientX; panLast.y = e.clientY;
-        svg.style.cursor = 'grabbing';
+        if (e.shiftKey){
+          isRotating = true;
+          rotLast.x = e.clientX; rotLast.y = e.clientY;
+          svg.style.cursor = 'crosshair';
+        } else {
+          isPanning = true;
+          panLast.x = e.clientX; panLast.y = e.clientY;
+          svg.style.cursor = 'grabbing';
+        }
       });
       window.addEventListener('mousemove', (e)=>{
-        if(!isPanning) return;
         const svgEl = document.getElementById('plot');
         const rect = svgEl.getBoundingClientRect();
+        if (isRotating){
+          const dxPx = e.clientX - rotLast.x;
+          const dyPx = e.clientY - rotLast.y;
+          const S = 0.3; // deg per pixel
+          yawDeg += dxPx * S;
+          pitchDeg -= dyPx * S;
+          // clamp pitch to avoid flipping
+          if (pitchDeg > 89) pitchDeg = 89;
+          if (pitchDeg < -89) pitchDeg = -89;
+          rotLast.x = e.clientX; rotLast.y = e.clientY;
+          // re-render with new projection
+          render(currentItems);
+          return;
+        }
+        if(!isPanning) return;
         const dxPx = e.clientX - panLast.x;
         const dyPx = e.clientY - panLast.y;
         // convert pixels to viewBox units (independent of scale, we pan in world coords)
@@ -303,9 +530,12 @@
         panLast.x = e.clientX; panLast.y = e.clientY;
         updateTransform();
       });
-      window.addEventListener('mouseup', ()=>{ if(isPanning){ isPanning=false; svg.style.cursor=''; } });
+      window.addEventListener('mouseup', ()=>{ 
+        if(isPanning){ isPanning=false; svg.style.cursor=''; }
+        if(isRotating){ isRotating=false; svg.style.cursor=''; }
+      });
       // Double click to reset
-      svg.addEventListener('dblclick', ()=>{ zScale=1; zTx=0; zTy=0; updateTransform(); });
+      svg.addEventListener('dblclick', ()=>{ zScale=1; zTx=0; zTy=0; yawDeg=35; pitchDeg=20; updateTransform(); render(currentItems); });
 
       // Touch/trackpad pinch-zoom and pan
       let pinchActive = false;

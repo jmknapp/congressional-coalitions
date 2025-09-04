@@ -33,6 +33,7 @@ import numpy as np
 try:
     from sklearn.decomposition import TruncatedSVD
     from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
     _SKLEARN_AVAILABLE = True
 except Exception:
     _SKLEARN_AVAILABLE = False
@@ -203,6 +204,277 @@ def get_summary():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/svd/components')
+def api_svd_components():
+    """Return summaries to help characterize SVD axes (components).
+
+    Params: dims (default 3), congress (119), chamber (house), rc_limit (optional),
+    min_votes (default 5), exclude_procedural (default true), scope, subject.
+    """
+    if not _SKLEARN_AVAILABLE:
+        return jsonify({'error': 'scikit-learn not available in this runtime'}), 500
+    try:
+        dims = int(request.args.get('dims', 3))
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        rc_limit_param = request.args.get('rc_limit')
+        rc_limit = int(rc_limit_param) if rc_limit_param is not None else None
+        min_votes = int(request.args.get('min_votes', 5))
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        scope = request.args.get('scope')
+        subject_param = request.args.get('subject')
+        subjects = [s.strip() for s in subject_param.split(',')] if subject_param else []
+
+        with get_db_session() as session:
+            # Rollcalls + bill meta
+            rc_q = (
+                session.query(
+                    Rollcall.rollcall_id,
+                    Rollcall.date,
+                    Rollcall.question,
+                    Rollcall.bill_id,
+                    Bill.title,
+                    Bill.policy_area,
+                )
+                .join(Bill, Rollcall.bill_id == Bill.bill_id)
+                .filter(Rollcall.congress == congress, Rollcall.chamber == chamber)
+                .filter(Bill.congress == congress, Bill.chamber == chamber)
+                .filter(Bill.bill_id.like(f"%-{congress}"))
+            )
+            if subjects and scope in ('policy_area', 'subject_term'):
+                if scope == 'policy_area':
+                    rc_q = rc_q.filter(Bill.policy_area.in_(subjects))
+                else:
+                    rc_q = rc_q.join(BillSubject, BillSubject.bill_id == Bill.bill_id).filter(BillSubject.subject_term.in_(subjects))
+            rc_q = rc_q.order_by(Rollcall.date.desc())
+            if rc_limit:
+                rc_q = rc_q.limit(rc_limit)
+            rc_rows = rc_q.all()
+            if not rc_rows:
+                return jsonify({'error': 'No roll calls found for scope'}), 404
+            rc_ids_all = [r.rollcall_id for r in rc_rows]
+            rc_meta = {r.rollcall_id: {
+                'rollcall_id': r.rollcall_id,
+                'date': r.date.isoformat() if r.date else None,
+                'question': r.question,
+                'bill_id': r.bill_id,
+                'title': r.title,
+                'policy_area': r.policy_area,
+            } for r in rc_rows}
+
+            # Preload subject terms for these bills
+            bill_ids_for_subjects = [m['bill_id'] for m in rc_meta.values() if m.get('bill_id')]
+            subj_rows = []
+            subj_map = {}
+            if bill_ids_for_subjects:
+                subj_rows = session.query(BillSubject.bill_id, BillSubject.subject_term) \
+                                  .filter(BillSubject.bill_id.in_(bill_ids_for_subjects)).all()
+                for b_id, term in subj_rows:
+                    if term:
+                        subj_map.setdefault(b_id, []).append(term)
+
+            # Votes
+            vq = session.query(Vote.rollcall_id, Vote.member_id_bioguide, Vote.vote_code) \
+                     .join(Rollcall, Vote.rollcall_id == Rollcall.rollcall_id) \
+                     .join(Member, Vote.member_id_bioguide == Member.member_id_bioguide) \
+                     .filter(Vote.rollcall_id.in_(rc_ids_all)) \
+                     .filter(Vote.vote_code.in_(['Yea','Nay']))
+            if chamber == 'house':
+                vq = vq.filter(Member.district.isnot(None))
+            if exclude_procedural:
+                vq = vq.filter(
+                    or_(
+                        Rollcall.question.is_(None),
+                        and_(
+                            ~Rollcall.question.ilike('%rule%'),
+                            ~Rollcall.question.ilike('%previous question%'),
+                            ~Rollcall.question.ilike('%recommit%'),
+                            ~Rollcall.question.ilike('%motion to table%'),
+                            ~Rollcall.question.ilike('%quorum%'),
+                            ~Rollcall.question.ilike('%adjourn%'),
+                            ~Rollcall.question.ilike('%suspend the rules%')
+                        )
+                    )
+                )
+            votes_rows = vq.all()
+
+            # Members meta for labeling
+            mem_rows = session.query(Member.member_id_bioguide, Member.first, Member.last, Member.party).filter(
+                Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)
+            ).all()
+            mem_meta = {m.member_id_bioguide: {
+                'name': f"{m.first or ''} {m.last or ''}".strip(),
+                'party': m.party
+            } for m in mem_rows}
+
+        # Build matrix
+        rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids_all)}
+        member_ids = sorted({row.member_id_bioguide for row in votes_rows if row.member_id_bioguide in mem_meta})
+        if not member_ids:
+            return jsonify({'error': 'No member votes found'}), 404
+        mem_index = {mid: i for i, mid in enumerate(member_ids)}
+        M = np.zeros((len(member_ids), len(rc_ids_all)), dtype=np.float32)
+        counts = np.zeros(len(member_ids), dtype=np.int32)
+        for rc_id, mid, code in votes_rows:
+            i = mem_index.get(mid)
+            j = rc_index.get(rc_id)
+            if i is None or j is None:
+                continue
+            M[i, j] = 1.0 if code == 'Yea' else -1.0
+            counts[i] += 1
+        keep = counts >= min_votes
+        if not np.any(keep):
+            return jsonify({'error': 'No members meet min_votes threshold'}), 400
+        M = M[keep]
+        kept_member_ids = [mid for mid in member_ids if keep[mem_index[mid]]]
+        # Drop empty columns
+        nonzero_cols_mask = (M != 0).any(axis=0)
+        if not np.any(nonzero_cols_mask):
+            return jsonify({'error': 'No usable roll calls after filters'}), 400
+        kept_rc_ids = [rc for rc, m in zip(rc_ids_all, nonzero_cols_mask) if m]
+        M = M[:, nonzero_cols_mask]
+        # Center
+        row_sums = M.sum(axis=1, keepdims=True)
+        row_counts = (M != 0).sum(axis=1, keepdims=True)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            row_means = np.divide(row_sums, row_counts, out=np.zeros_like(row_sums), where=row_counts!=0)
+        M_centered = np.nan_to_num(M - row_means, nan=0.0)
+
+        max_rank = int(min(M_centered.shape) - 1)
+        if max_rank < 2:
+            return jsonify({'error': 'Insufficient variation for SVD'}), 400
+        n_comp = min(max(2, dims), min(10, max_rank))
+        svd = TruncatedSVD(n_components=n_comp, random_state=42)
+        Z = svd.fit_transform(M_centered)  # n_samples x n_comp
+        VT = svd.components_  # n_comp x n_features (= kept rollcalls)
+
+        # Compute member scores per component
+        member_scores = Z  # rows align with kept_member_ids
+
+        # Helper: subject enrichment for top RCs by |loading|
+        def enrich_subjects(rc_list_with_w, limit=5):
+            # Aggregate by policy_area and subject_term
+            pos_pa, neg_pa = {}, {}
+            pos_st, neg_st = {}, {}
+            # Map bill_id -> subject terms
+            bill_ids = list({rc_meta[rc_id]['bill_id'] for rc_id, _ in rc_list_with_w if rc_meta.get(rc_id)})
+            subj_map = {}
+            if bill_ids:
+                with get_db_session() as session:
+                    rows = session.query(BillSubject.bill_id, BillSubject.subject_term).filter(BillSubject.bill_id.in_(bill_ids)).all()
+                    for b_id, term in rows:
+                        if term:
+                            subj_map.setdefault(b_id, []).append(term)
+            for rc_id, w in rc_list_with_w:
+                meta = rc_meta.get(rc_id)
+                if not meta:
+                    continue
+                pa = meta.get('policy_area')
+                terms = subj_map.get(meta.get('bill_id'), [])
+                target_pa = pos_pa if w > 0 else neg_pa
+                target_st = pos_st if w > 0 else neg_st
+                target_pa[pa] = target_pa.get(pa, 0.0) + abs(w)
+                for t in terms:
+                    target_st[t] = target_st.get(t, 0.0) + abs(w)
+            def topd(d):
+                return [ {'name': k or '(Unknown)', 'score': round(v, 3)} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True)[:limit] ]
+            return topd(pos_pa), topd(neg_pa), topd(pos_st), topd(neg_st)
+
+        # Helper: party split for given rc ids
+        def party_split_for_rc(rc_ids):
+            if not rc_ids:
+                return {}
+            with get_db_session() as session:
+                q = text("""
+                    SELECT v.rollcall_id,
+                           UPPER(SUBSTRING(m.party,1,1)) AS p,
+                           v.vote_code,
+                           COUNT(*) AS c
+                    FROM votes v
+                    JOIN members m ON m.member_id_bioguide = v.member_id_bioguide
+                    WHERE v.rollcall_id IN :rc_ids AND v.vote_code IN ('Yea','Nay')
+                    GROUP BY v.rollcall_id, p, v.vote_code
+                """)
+                rows = session.execute(q, {'rc_ids': tuple(rc_ids)}).fetchall()
+            out = {}
+            for r in rows:
+                rc = r.rollcall_id
+                p = r.p or ''
+                code = r.vote_code
+                c = int(r.c or 0)
+                d = out.setdefault(rc, {'D': {'Yea':0,'Nay':0}, 'R': {'Yea':0,'Nay':0}})
+                if p in d:
+                    d[p][code] += c
+            # Convert to percentages
+            for rc, d in out.items():
+                for p in ('D','R'):
+                    tot = d[p]['Yea'] + d[p]['Nay']
+                    if tot>0:
+                        d[p]['yea_pct'] = round(100*d[p]['Yea']/tot,1)
+                        d[p]['nay_pct'] = round(100*d[p]['Nay']/tot,1)
+            return out
+
+        components = []
+        topN = 8
+        for k in range(n_comp):
+            load = VT[k]  # length = len(kept_rc_ids)
+            # top pos/neg by weight
+            idx_sorted_pos = np.argsort(-load)[:topN]
+            idx_sorted_neg = np.argsort(load)[:topN]
+            top_pos = [(kept_rc_ids[i], float(load[i])) for i in idx_sorted_pos]
+            top_neg = [(kept_rc_ids[i], float(load[i])) for i in idx_sorted_neg]
+            # subject enrichment
+            pa_pos, pa_neg, st_pos, st_neg = enrich_subjects(top_pos+top_neg)
+            # party splits
+            splits = party_split_for_rc([rc for rc,_ in (top_pos+top_neg)])
+            def rc_detail(lst):
+                arr = []
+                for rc_id, w in lst:
+                    m = rc_meta.get(rc_id, {})
+                    s = splits.get(rc_id, {})
+                    arr.append({
+                        'rollcall_id': rc_id,
+                        'weight': round(w, 4),
+                        'question': m.get('question'),
+                        'date': m.get('date'),
+                        'bill_id': m.get('bill_id'),
+                        'title': m.get('title'),
+                        'policy_area': m.get('policy_area'),
+                        'party_split': s
+                    })
+                return arr
+            # member extremes
+            scores = member_scores[:, k]
+            order_pos = np.argsort(-scores)[:topN]
+            order_neg = np.argsort(scores)[:topN]
+            members_pos = [{
+                'id': kept_member_ids[i],
+                'name': mem_meta.get(kept_member_ids[i], {}).get('name', kept_member_ids[i]),
+                'party': mem_meta.get(kept_member_ids[i], {}).get('party'),
+                'score': round(float(scores[i]), 4)
+            } for i in order_pos]
+            members_neg = [{
+                'id': kept_member_ids[i],
+                'name': mem_meta.get(kept_member_ids[i], {}).get('name', kept_member_ids[i]),
+                'party': mem_meta.get(kept_member_ids[i], {}).get('party'),
+                'score': round(float(scores[i]), 4)
+            } for i in order_neg]
+
+            components.append({
+                'index': k+1,
+                'top_rollcalls_pos': rc_detail(top_pos),
+                'top_rollcalls_neg': rc_detail(top_neg),
+                'policy_area_pos': pa_pos,
+                'policy_area_neg': pa_neg,
+                'subject_term_pos': st_pos,
+                'subject_term_neg': st_neg,
+                'members_pos': members_pos,
+                'members_neg': members_neg
+            })
+
+        return jsonify({'dims': n_comp, 'components': components})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/members')
 def get_members():
     """Get House members only with their details."""
@@ -2147,13 +2419,16 @@ def api_clusters():
         km = KMeans(n_clusters=max(2, k), n_init=10, random_state=42)
         labels = km.fit_predict(Z)
 
-        # 2D coords
-        xy = Z[:, :2]
-        # Normalize to [0,1] for easy plotting
-        mins = xy.min(axis=0)
-        maxs = xy.max(axis=0)
+        # Normalize first 3 components to [0,1] for plotting
+        k_dims = min(3, Z.shape[1])
+        Zk = Z[:, :k_dims]
+        mins = Zk.min(axis=0)
+        maxs = Zk.max(axis=0)
         denom = np.where((maxs - mins) == 0, 1, (maxs - mins))
-        norm_xy = (xy - mins) / denom
+        Znorm = (Zk - mins) / denom
+        # Normalized location of 0 on each axis (if within range)
+        zeros = (0 - mins) / denom
+        zeros = np.clip(zeros, 0, 1)
 
         # Load caucus membership sets for badges
         caucus_data = load_caucus_data()
@@ -2175,8 +2450,9 @@ def api_clusters():
                 'party': (m['party'] if m else None),
                 'state': (m['state'] if m else None),
                 'district': (int(m['district']) if (m and m['district'] is not None) else None),
-                'x': float(norm_xy[idx, 0]),
-                'y': float(norm_xy[idx, 1]),
+                'x': float(Znorm[idx, 0]) if Znorm.shape[1] >= 1 else 0.0,
+                'y': float(Znorm[idx, 1]) if Znorm.shape[1] >= 2 else 0.0,
+                'z': float(Znorm[idx, 2]) if Znorm.shape[1] >= 3 else None,
                 'cluster': int(labels[idx]),
                 'badges': {
                     'fc': fc,
@@ -2198,7 +2474,12 @@ def api_clusters():
             'scope': scope,
             'subjects': subjects,
             'count': len(items),
-            'items': items
+            'items': items,
+            'norm_zeros': {
+                'x0': float(zeros[0]) if k_dims >= 1 else None,
+                'y0': float(zeros[1]) if k_dims >= 2 else None,
+                'z0': float(zeros[2]) if k_dims >= 3 else None
+            }
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2210,6 +2491,444 @@ def clusters_page():
         return render_template('clusters.html')
     except Exception as e:
         return f"Error: {str(e)}", 500
+
+@app.route('/api/clusters/auto-k')
+def api_clusters_auto_k():
+    """Suggest an optimal k based on clustering metrics (silhouette/CH/DB).
+
+    Params mirror /api/clusters: congress, chamber, rc_limit (optional), min_votes (default 5),
+    exclude_procedural, scope, subject.
+    Returns suggested_k and metrics for k=2..k_max.
+    """
+    if not _SKLEARN_AVAILABLE:
+        return jsonify({'error': 'scikit-learn not available in this runtime'}), 500
+    try:
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        rc_limit_param = request.args.get('rc_limit')
+        rc_limit = int(rc_limit_param) if rc_limit_param is not None else None
+        min_votes = int(request.args.get('min_votes', 5))
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        scope = request.args.get('scope')
+        subject_param = request.args.get('subject')
+        subjects = [s.strip() for s in subject_param.split(',')] if subject_param else []
+
+        # Build the same vote matrix as /api/clusters
+        with get_db_session() as session:
+            rc_q = (
+                session.query(Rollcall.rollcall_id, Rollcall.date, Rollcall.question)
+                .join(Bill, Rollcall.bill_id == Bill.bill_id)
+                .filter(Rollcall.congress == congress, Rollcall.chamber == chamber)
+                .filter(Bill.congress == congress, Bill.chamber == chamber)
+                .filter(Bill.bill_id.like(f"%-{congress}"))
+            )
+            if subjects and scope in ('policy_area', 'subject_term'):
+                if scope == 'policy_area':
+                    rc_q = rc_q.filter(Bill.policy_area.in_(subjects))
+                else:
+                    rc_q = rc_q.join(BillSubject, BillSubject.bill_id == Bill.bill_id).filter(BillSubject.subject_term.in_(subjects))
+            rc_q = rc_q.order_by(Rollcall.date.desc())
+            if rc_limit:
+                rc_q = rc_q.limit(rc_limit)
+            rc_rows = rc_q.all()
+            rc_ids = [row.rollcall_id for row in rc_rows]
+            if not rc_ids:
+                return jsonify({'error': 'No roll calls found for scope', 'detail': {'subjects': subjects, 'scope': scope}}), 404
+
+            vq = session.query(Vote.rollcall_id, Vote.member_id_bioguide, Vote.vote_code) \
+                     .join(Rollcall, Vote.rollcall_id == Rollcall.rollcall_id) \
+                     .join(Member, Vote.member_id_bioguide == Member.member_id_bioguide) \
+                     .filter(Vote.rollcall_id.in_(rc_ids)) \
+                     .filter(Vote.vote_code.in_(['Yea','Nay']))
+            if chamber == 'house':
+                vq = vq.filter(Member.district.isnot(None))
+            if exclude_procedural:
+                vq = vq.filter(
+                    or_(
+                        Rollcall.question.is_(None),
+                        and_(
+                            ~Rollcall.question.ilike('%rule%'),
+                            ~Rollcall.question.ilike('%previous question%'),
+                            ~Rollcall.question.ilike('%recommit%'),
+                            ~Rollcall.question.ilike('%motion to table%'),
+                            ~Rollcall.question.ilike('%quorum%'),
+                            ~Rollcall.question.ilike('%adjourn%'),
+                            ~Rollcall.question.ilike('%suspend the rules%')
+                        )
+                    )
+                )
+            votes_rows = vq.all()
+
+            members_rows = session.query(
+                Member.member_id_bioguide
+            ).filter(
+                Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)
+            ).all()
+            all_member_ids = {row.member_id_bioguide for row in members_rows}
+
+        # Build matrix
+        rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids)}
+        member_ids = sorted({row.member_id_bioguide for row in votes_rows if row.member_id_bioguide in all_member_ids})
+        if not member_ids:
+            return jsonify({'error': 'No member votes found'}), 404
+        mem_index = {mid: i for i, mid in enumerate(member_ids)}
+        import numpy as _np
+        M = _np.zeros((len(member_ids), len(rc_ids)), dtype=_np.float32)
+        counts = _np.zeros(len(member_ids), dtype=_np.int32)
+        for rc_id, mid, code in votes_rows:
+            i = mem_index.get(mid)
+            j = rc_index.get(rc_id)
+            if i is None or j is None:
+                continue
+            M[i, j] = 1.0 if code == 'Yea' else -1.0
+            counts[i] += 1
+        keep = counts >= min_votes
+        if not _np.any(keep):
+            return jsonify({'error': 'No members meet min_votes threshold', 'detail': {'min_votes': int(min_votes), 'members_with_votes': int((counts>0).sum())}}), 400
+        M = M[keep]
+        # Drop empty columns
+        nonzero_cols_mask = (M != 0).any(axis=0)
+        if not _np.any(nonzero_cols_mask):
+            return jsonify({'error': 'No usable roll calls after filters'}), 400
+        M = M[:, nonzero_cols_mask]
+        # Center per member
+        row_sums = M.sum(axis=1, keepdims=True)
+        row_counts = (M != 0).sum(axis=1, keepdims=True)
+        with _np.errstate(invalid='ignore', divide='ignore'):
+            row_means = _np.divide(row_sums, row_counts, out=_np.zeros_like(row_sums), where=row_counts!=0)
+        M_centered = _np.nan_to_num(M - row_means, nan=0.0)
+        max_rank = int(min(M_centered.shape) - 1)
+        if max_rank < 2:
+            return jsonify({'error': 'Insufficient variation for SVD', 'detail': {'rows': int(M_centered.shape[0]), 'cols': int(M_centered.shape[1])}}), 400
+        comps = min(10, max_rank)
+        svd = TruncatedSVD(n_components=comps, random_state=42)
+        Z = svd.fit_transform(M_centered)
+
+        # Evaluate k from 2..kmax (bounded by samples)
+        n_samples = Z.shape[0]
+        kmax = max(3, min(10, n_samples - 1))
+        results = []
+        best_k = None
+        best_sil = -1
+        for k in range(2, kmax+1):
+            km = KMeans(n_clusters=k, n_init=10, random_state=42)
+            labels = km.fit_predict(Z)
+            # Skip degenerate case where any cluster is empty (unlikely with KMeans) or all labels same
+            if len(set(labels)) < 2:
+                continue
+            sil = silhouette_score(Z, labels)
+            ch = calinski_harabasz_score(Z, labels)
+            db = davies_bouldin_score(Z, labels)
+            results.append({'k': k, 'silhouette': float(sil), 'calinski_harabasz': float(ch), 'davies_bouldin': float(db)})
+            if sil > best_sil:
+                best_sil = sil
+                best_k = k
+
+        if not results:
+            return jsonify({'error': 'Could not compute metrics for any k'}), 400
+
+        # Prefer smallest k within 95% of best silhouette to avoid over-segmentation
+        sil_best = max(r['silhouette'] for r in results)
+        candidates = [r['k'] for r in results if r['silhouette'] >= 0.95 * sil_best]
+        suggested_k = min(candidates) if candidates else best_k
+
+        return jsonify({'suggested_k': int(suggested_k), 'metrics': results, 'kmax': int(kmax), 'params': {
+            'congress': congress,
+            'chamber': chamber,
+            'rc_limit': rc_limit if rc_limit is not None else 'all',
+            'min_votes': min_votes,
+            'exclude_procedural': exclude_procedural,
+            'scope': scope,
+            'subjects': subjects
+        }})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/clusters/summary')
+def api_clusters_summary():
+    """Summarize clusters: size/party/caucus, SVD means, anchor roll calls, exemplars.
+
+    Params: congress, chamber, rc_limit (optional), min_votes (default 5), exclude_procedural,
+    scope, subject, k (required).
+    """
+    if not _SKLEARN_AVAILABLE:
+        return jsonify({'error': 'scikit-learn not available in this runtime'}), 500
+    try:
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        rc_limit_param = request.args.get('rc_limit')
+        rc_limit = int(rc_limit_param) if rc_limit_param is not None else None
+        min_votes = int(request.args.get('min_votes', 5))
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        scope = request.args.get('scope')
+        subject_param = request.args.get('subject')
+        subjects = [s.strip() for s in subject_param.split(',')] if subject_param else []
+        k = int(request.args.get('k', 5))
+
+        with get_db_session() as session:
+            # Rollcalls + bill meta
+            rc_q = (
+                session.query(
+                    Rollcall.rollcall_id,
+                    Rollcall.date,
+                    Rollcall.question,
+                    Rollcall.bill_id,
+                    Bill.title,
+                    Bill.policy_area,
+                )
+                .join(Bill, Rollcall.bill_id == Bill.bill_id)
+                .filter(Rollcall.congress == congress, Rollcall.chamber == chamber)
+                .filter(Bill.congress == congress, Bill.chamber == chamber)
+                .filter(Bill.bill_id.like(f"%-{congress}"))
+            )
+            if subjects and scope in ('policy_area', 'subject_term'):
+                if scope == 'policy_area':
+                    rc_q = rc_q.filter(Bill.policy_area.in_(subjects))
+                else:
+                    rc_q = rc_q.join(BillSubject, BillSubject.bill_id == Bill.bill_id).filter(BillSubject.subject_term.in_(subjects))
+            rc_q = rc_q.order_by(Rollcall.date.desc())
+            if rc_limit:
+                rc_q = rc_q.limit(rc_limit)
+            rc_rows = rc_q.all()
+            if not rc_rows:
+                return jsonify({'error': 'No roll calls found for scope'}), 404
+            rc_ids_all = [r.rollcall_id for r in rc_rows]
+            rc_meta = {r.rollcall_id: {
+                'rollcall_id': r.rollcall_id,
+                'date': r.date.isoformat() if r.date else None,
+                'question': r.question,
+                'bill_id': r.bill_id,
+                'title': r.title,
+                'policy_area': r.policy_area,
+            } for r in rc_rows}
+
+            # Votes
+            vq = session.query(Vote.rollcall_id, Vote.member_id_bioguide, Vote.vote_code) \
+                     .join(Rollcall, Vote.rollcall_id == Rollcall.rollcall_id) \
+                     .join(Member, Vote.member_id_bioguide == Member.member_id_bioguide) \
+                     .filter(Vote.rollcall_id.in_(rc_ids_all)) \
+                     .filter(Vote.vote_code.in_(['Yea','Nay']))
+            if chamber == 'house':
+                vq = vq.filter(Member.district.isnot(None))
+            if exclude_procedural:
+                vq = vq.filter(
+                    or_(
+                        Rollcall.question.is_(None),
+                        and_(
+                            ~Rollcall.question.ilike('%rule%'),
+                            ~Rollcall.question.ilike('%previous question%'),
+                            ~Rollcall.question.ilike('%recommit%'),
+                            ~Rollcall.question.ilike('%motion to table%'),
+                            ~Rollcall.question.ilike('%quorum%'),
+                            ~Rollcall.question.ilike('%adjourn%'),
+                            ~Rollcall.question.ilike('%suspend the rules%')
+                        )
+                    )
+                )
+            votes_rows = vq.all()
+
+            # Members meta
+            mem_rows = session.query(
+                Member.member_id_bioguide, Member.first, Member.last, Member.party, Member.state
+            ).filter(
+                Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)
+            ).all()
+            mem_meta = {m.member_id_bioguide: {
+                'name': f"{m.first or ''} {m.last or ''}".strip(),
+                'party': m.party,
+                'state': m.state
+            } for m in mem_rows}
+
+        # Build matrix
+        rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids_all)}
+        member_ids = sorted({row.member_id_bioguide for row in votes_rows if row.member_id_bioguide in mem_meta})
+        if not member_ids:
+            return jsonify({'error': 'No member votes found'}), 404
+        mem_index = {mid: i for i, mid in enumerate(member_ids)}
+        M = np.zeros((len(member_ids), len(rc_ids_all)), dtype=np.float32)
+        counts = np.zeros(len(member_ids), dtype=np.int32)
+        for rc_id, mid, code in votes_rows:
+            i = mem_index.get(mid)
+            j = rc_index.get(rc_id)
+            if i is None or j is None:
+                continue
+            M[i, j] = 1.0 if code == 'Yea' else -1.0
+            counts[i] += 1
+        keep = counts >= min_votes
+        if not np.any(keep):
+            return jsonify({'error': 'No members meet min_votes threshold'}), 400
+        M = M[keep]
+        kept_member_ids = [mid for mid in member_ids if keep[mem_index[mid]]]
+        # Drop empty columns
+        nonzero_cols_mask = (M != 0).any(axis=0)
+        if not np.any(nonzero_cols_mask):
+            return jsonify({'error': 'No usable roll calls after filters'}), 400
+        kept_rc_ids = [rc for rc, m in zip(rc_ids_all, nonzero_cols_mask) if m]
+        M = M[:, nonzero_cols_mask]
+        # Center
+        row_sums = M.sum(axis=1, keepdims=True)
+        row_counts = (M != 0).sum(axis=1, keepdims=True)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            row_means = np.divide(row_sums, row_counts, out=np.zeros_like(row_sums), where=row_counts!=0)
+        M_centered = np.nan_to_num(M - row_means, nan=0.0)
+
+        max_rank = int(min(M_centered.shape) - 1)
+        if max_rank < 2:
+            return jsonify({'error': 'Insufficient variation for SVD'}), 400
+        comps = min(10, max_rank)
+        svd = TruncatedSVD(n_components=comps, random_state=42)
+        Z = svd.fit_transform(M_centered)
+
+        # Cluster
+        k = max(2, min(k, Z.shape[0]-1))
+        km = KMeans(n_clusters=k, n_init=10, random_state=42)
+        labels = km.fit_predict(Z)
+
+        # Cluster summaries
+        caucus_data = load_caucus_data()
+        clusters = []
+        for cid in range(k):
+            idx = [i for i, lab in enumerate(labels) if lab == cid]
+            size = len(idx)
+            parts = {'D': 0, 'R': 0, 'other': 0}
+            states = {}
+            badge_counts = {'fc':0,'pc':0,'bd':0,'maga':0,'cbc':0,'tb':0}
+            for i in idx:
+                mid = kept_member_ids[i]
+                p = (mem_meta.get(mid, {}).get('party') or '')
+                key = 'D' if p.upper().startswith('D') else 'R' if p.upper().startswith('R') else 'other'
+                parts[key] += 1
+                st = mem_meta.get(mid, {}).get('state')
+                if st:
+                    states[st] = states.get(st, 0) + 1
+                # badges
+                if mid in caucus_data.get('freedom_caucus', set()): badge_counts['fc'] += 1
+                if mid in caucus_data.get('progressive_caucus', set()): badge_counts['pc'] += 1
+                if mid in caucus_data.get('blue_dog_coalition', set()): badge_counts['bd'] += 1
+                if mid in caucus_data.get('maga_republicans', set()): badge_counts['maga'] += 1
+                if mid in caucus_data.get('congressional_black_caucus', set()): badge_counts['cbc'] += 1
+                if mid in caucus_data.get('true_blue_democrats', set()): badge_counts['tb'] += 1
+
+            # SVD means (first 3 components if available)
+            Zc = Z[idx]
+            means = {'x': float(Zc[:,0].mean()) if Zc.shape[1] >=1 else 0.0,
+                     'y': float(Zc[:,1].mean()) if Zc.shape[1] >=2 else 0.0,
+                     'z': float(Zc[:,2].mean()) if Zc.shape[1] >=3 else None}
+
+            # Anchor roll calls: largest |Δ Yea%| vs others
+            # compute per RC yea counts for cluster and others
+            # Re-fetch votes for efficiency could be heavy; we can iterate over votes_rows
+            rc_counts = {rc: {'in_yea':0,'in_tot':0,'out_yea':0,'out_tot':0} for rc in kept_rc_ids}
+            # map kept_member_ids index to cluster membership quickly
+            in_cluster = set(idx)
+            # Build map of member index by id for quick checks
+            mid_to_i = {mid: i for i, mid in enumerate(kept_member_ids)}
+            for rc_id, mid, code in votes_rows:
+                if rc_id not in rc_counts:
+                    continue
+                i = mid_to_i.get(mid)
+                if i is None:
+                    continue
+                inc = i in in_cluster
+                key_yea = 'in_yea' if inc else 'out_yea'
+                key_tot = 'in_tot' if inc else 'out_tot'
+                if code in ('Yea','Nay'):
+                    rc_counts[rc_id][key_tot] += 1
+                    if code == 'Yea':
+                        rc_counts[rc_id][key_yea] += 1
+            deltas = []
+            for rc, cts in rc_counts.items():
+                if cts['in_tot'] >= 10 and cts['out_tot'] >= 10:  # min sample
+                    in_pct = cts['in_yea']/cts['in_tot'] if cts['in_tot'] else 0
+                    out_pct = cts['out_yea']/cts['out_tot'] if cts['out_tot'] else 0
+                    deltas.append((rc, abs(in_pct - out_pct), in_pct, out_pct))
+            deltas.sort(key=lambda x: x[1], reverse=True)
+            top_rc = deltas[:8]
+            # Subject enrichment: compare in-cluster vs out-of-cluster vote volume by policy area and subject term
+            in_total_votes = sum(cts['in_tot'] for cts in rc_counts.values())
+            out_total_votes = sum(cts['out_tot'] for cts in rc_counts.values())
+            pa_in, pa_out = {}, {}
+            st_in, st_out = {}, {}
+            for rc, cts in rc_counts.items():
+                meta = rc_meta.get(rc, {})
+                pa = meta.get('policy_area')
+                if pa:
+                    pa_in[pa] = pa_in.get(pa, 0) + cts['in_tot']
+                    pa_out[pa] = pa_out.get(pa, 0) + cts['out_tot']
+                b_id = meta.get('bill_id')
+                if b_id:
+                    for term in subj_map.get(b_id, []):
+                        st_in[term] = st_in.get(term, 0) + cts['in_tot']
+                        st_out[term] = st_out.get(term, 0) + cts['out_tot']
+            import math as _math
+            def top_scores(in_map, out_map, in_tot, out_tot, limit=6):
+                scores = []
+                for key in set(list(in_map.keys()) + list(out_map.keys())):
+                    a = in_map.get(key, 0)
+                    b = out_map.get(key, 0)
+                    # log-odds style contrast with +1 smoothing
+                    s = _math.log((a + 1) / (in_tot + 1)) - _math.log((b + 1) / (out_tot + 1))
+                    scores.append((key, s))
+                scores.sort(key=lambda x: x[1], reverse=True)
+                pos = [{'name': k or '(Unknown)', 'score': round(float(s), 3)} for k, s in scores[:limit]]
+                neg = [{'name': k or '(Unknown)', 'score': round(float(s), 3)} for k, s in scores[-limit:][::-1]]
+                return pos, neg
+            pa_pos, pa_neg = top_scores(pa_in, pa_out, in_total_votes, out_total_votes)
+            st_pos, st_neg = top_scores(st_in, st_out, in_total_votes, out_total_votes)
+            # decorate rc details
+            def rc_rows(lst):
+                out = []
+                for rc, d, in_p, out_p in lst:
+                    m = rc_meta.get(rc, {})
+                    out.append({
+                        'rollcall_id': rc,
+                        'delta': round(float(d),3),
+                        'in_yea_pct': round(float(in_p*100),1),
+                        'out_yea_pct': round(float(out_p*100),1),
+                        'question': m.get('question'),
+                        'date': m.get('date'),
+                        'bill_id': m.get('bill_id'),
+                        'title': m.get('title'),
+                        'policy_area': m.get('policy_area')
+                    })
+                return out
+
+            # Exemplars (closest to centroid) and edge (farthest)
+            centroid = Zc.mean(axis=0)
+            from numpy.linalg import norm as _norm
+            dists = [(_norm(Z[i]-centroid), i) for i in idx]
+            dists.sort()
+            exemplars = [{
+                'id': kept_member_ids[i],
+                'name': mem_meta.get(kept_member_ids[i], {}).get('name', kept_member_ids[i]),
+                'party': mem_meta.get(kept_member_ids[i], {}).get('party')
+            } for _, i in dists[:5]]
+            edges = [{
+                'id': kept_member_ids[i],
+                'name': mem_meta.get(kept_member_ids[i], {}).get('name', kept_member_ids[i]),
+                'party': mem_meta.get(kept_member_ids[i], {}).get('party')
+            } for _, i in dists[-5:]]
+
+            top_states = sorted(states.items(), key=lambda x: x[1], reverse=True)[:5]
+            clusters.append({
+                'id': cid,
+                'size': size,
+                'party': parts,
+                'caucuses': badge_counts,
+                'svd_means': means,
+                'anchor_rollcalls': rc_rows(top_rc),
+                'policy_area_pos': pa_pos,
+                'policy_area_neg': pa_neg,
+                'subject_term_pos': st_pos,
+                'subject_term_neg': st_neg,
+                'exemplars': exemplars,
+                'edge_members': edges,
+                'top_states': [{'state': s, 'count': c} for s,c in top_states]
+            })
+
+        return jsonify({'clusters': clusters, 'k': k})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @app.route('/subjects/bills')
 def subjects_bills_page():
     """List bills with votes for a given subject.
