@@ -1875,7 +1875,7 @@ def get_bills_in_progress(congress):
     try:
         with get_db_session() as session:
             query = """
-                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area, b.introduced_date
                 FROM bills b
                 WHERE b.congress = :congress
                   AND NOT EXISTS (
@@ -1892,13 +1892,52 @@ def get_bills_in_progress(congress):
                 'bill_id': result.bill_id,
                 'title': result.title,
                 'sponsor_bioguide': result.sponsor_bioguide,
-                'policy_area': result.policy_area
+                'policy_area': result.policy_area,
+                'introduced_date': result.introduced_date.isoformat() if result.introduced_date else None
             } for result in results]
             
             return jsonify(bills)
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# HTML page route for in-progress bills
+@app.route('/bills/in-progress/<int:congress>')
+def bills_in_progress_page(congress):
+    """HTML page showing bills that are still in progress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area, b.introduced_date
+                FROM bills b
+                WHERE b.congress = :congress
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a 
+                      WHERE a.bill_id = b.bill_id 
+                        AND a.action_code IN ('ENACTED', 'VETOED', 'PASSED_HOUSE', 'PASSED_SENATE')
+                  )
+                ORDER BY b.introduced_date DESC
+                LIMIT 100
+            """
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'introduced_date': result.introduced_date.isoformat() if result.introduced_date else None,
+                # Ensure template fields exist (None if not applicable)
+                'house_pass_date': None,
+                'senate_pass_date': None,
+                'enacted_date': None
+            } for result in results]
+            return render_template('bills_list.html',
+                                   title='Bills In Progress',
+                                   subtitle='Not yet passed, enacted, or vetoed',
+                                   bills=bills,
+                                   congress=congress)
+    except Exception as e:
+        return f"Error: {str(e)}", 500
 
 @app.route('/api/bills/total-passed-both/<int:congress>')
 def get_bills_total_passed_both(congress):
