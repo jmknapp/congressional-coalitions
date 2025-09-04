@@ -1776,6 +1776,8 @@ def get_enacted_bills(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code = 'ENACTED'
                 GROUP BY b.bill_id
                 ORDER BY enacted_date DESC
@@ -1807,6 +1809,8 @@ def get_bills_passed_both(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                  WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -1840,6 +1844,8 @@ def get_bills_passed_house_only(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code = 'PASSED_HOUSE'
                   AND NOT EXISTS (
                       SELECT 1 FROM actions a2 
@@ -1878,6 +1884,8 @@ def get_bills_in_progress(congress):
                 SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area, b.introduced_date
                 FROM bills b
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND NOT EXISTS (
                       SELECT 1 FROM actions a 
                       WHERE a.bill_id = b.bill_id 
@@ -1911,6 +1919,8 @@ def bills_in_progress_page(congress):
                 SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area, b.introduced_date
                 FROM bills b
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND NOT EXISTS (
                       SELECT 1 FROM actions a 
                       WHERE a.bill_id = b.bill_id 
@@ -1952,6 +1962,8 @@ def get_bills_total_passed_both(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                  WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -1988,6 +2000,8 @@ def bills_enacted_page(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code = 'ENACTED'
                 GROUP BY b.bill_id
                 ORDER BY enacted_date DESC
@@ -2023,6 +2037,8 @@ def bills_passed_both_page(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                  WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -2066,6 +2082,8 @@ def bills_house_only_page(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                 WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code = 'PASSED_HOUSE'
                   AND NOT EXISTS (
                       SELECT 1 FROM actions a2 
@@ -2112,6 +2130,8 @@ def bills_total_passed_both_page(congress):
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
                  WHERE b.congress = :congress
+                  AND b.chamber = 'house'
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -2160,6 +2180,8 @@ def get_bills_status_summary(congress):
                     FROM bills b
                     LEFT JOIN actions a ON b.bill_id = a.bill_id
                     WHERE b.congress = :congress
+                      AND b.chamber = 'house'
+                      AND b.bill_id LIKE CONCAT('%-', :congress)
                     GROUP BY b.bill_id
                 ) as status_subquery
                 GROUP BY bill_status
