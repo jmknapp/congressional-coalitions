@@ -1681,6 +1681,125 @@ def get_doc_title(content):
         return match.group(1)
     return "Documentation"
 
+# -----------------------------
+# Subjects summary endpoints
+# -----------------------------
+
+def _is_truthy(val: str) -> bool:
+    if val is None:
+        return False
+    return str(val).lower() in ("1", "true", "yes", "on")
+
+@app.route('/api/subjects/summary')
+def subjects_summary_api():
+    """Return party split and gap per subject.
+
+    Query params:
+      - congress: int (default 119)
+      - scope: 'policy_area' | 'subject_term' (default 'policy_area')
+      - min_votes: int (default 20)
+      - chamber: 'house' | 'senate' (default 'house')
+      - exclude_procedural: bool (default true)
+    """
+    try:
+        congress = int(request.args.get('congress', 119))
+        scope = request.args.get('scope', 'policy_area')
+        min_votes = int(request.args.get('min_votes', 20))
+        chamber = request.args.get('chamber', 'house')
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+
+        if scope not in ('policy_area', 'subject_term'):
+            scope = 'policy_area'
+
+        with get_db_session() as session:
+            subject_expr = 'b.policy_area' if scope == 'policy_area' else 's.subject_term'
+            join_subject = '' if scope == 'policy_area' else 'JOIN bill_subjects s ON s.bill_id = b.bill_id'
+            subject_not_null = ' AND b.policy_area IS NOT NULL' if scope == 'policy_area' else ' AND s.subject_term IS NOT NULL'
+
+            procedural_filter = ''
+            if exclude_procedural:
+                # Basic keyword filter on rollcall question
+                procedural_filter = (
+                    " AND ("
+                    " r.question IS NULL OR ("
+                    " r.question NOT LIKE '%rule%' AND"
+                    " r.question NOT LIKE '%previous question%' AND"
+                    " r.question NOT LIKE '%recommit%' AND"
+                    " r.question NOT LIKE '%motion to table%' AND"
+                    " r.question NOT LIKE '%quorum%' AND"
+                    " r.question NOT LIKE '%adjourn%' AND"
+                    " r.question NOT LIKE '%suspend the rules%'"
+                    ") )"
+                )
+
+            query = f"""
+                SELECT {subject_expr} AS subject,
+                       m.party AS party,
+                       SUM(CASE WHEN v.vote_code = 'Yea' THEN 1 ELSE 0 END) AS yea,
+                       SUM(CASE WHEN v.vote_code IN ('Yea','Nay') THEN 1 ELSE 0 END) AS total
+                FROM votes v
+                JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
+                JOIN bills b ON r.bill_id = b.bill_id
+                {join_subject}
+                JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
+                WHERE b.congress = :congress
+                  AND b.chamber = :chamber
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
+                  AND v.vote_code IN ('Yea','Nay')
+                  {subject_not_null}
+                  {procedural_filter}
+                GROUP BY subject, m.party
+            """
+
+            rows = session.execute(text(query), {'congress': congress, 'chamber': chamber}).fetchall()
+
+            # Aggregate into subject-level records combining parties
+            by_subject = {}
+            for row in rows:
+                subject = row.subject
+                party = (row.party or '').upper()
+                yea = int(row.yea or 0)
+                total = int(row.total or 0)
+                if subject not in by_subject:
+                    by_subject[subject] = {'subject': subject, 'votes': 0, 'D': {'yea': 0, 'total': 0}, 'R': {'yea': 0, 'total': 0}}
+                by_subject[subject]['votes'] += total
+                if party in ('D', 'R'):
+                    by_subject[subject][party]['yea'] += yea
+                    by_subject[subject][party]['total'] += total
+
+            # Build list with rates and gaps; enforce min_votes
+            items = []
+            for subj, data in by_subject.items():
+                if data['votes'] < min_votes:
+                    continue
+                d_rate = (data['D']['yea'] / data['D']['total']) if data['D']['total'] else None
+                r_rate = (data['R']['yea'] / data['R']['total']) if data['R']['total'] else None
+                gap = None
+                if d_rate is not None and r_rate is not None:
+                    gap = abs(d_rate - r_rate)
+                items.append({
+                    'subject': subj,
+                    'd_yea': round(d_rate * 100, 1) if d_rate is not None else None,
+                    'r_yea': round(r_rate * 100, 1) if r_rate is not None else None,
+                    'gap': round(gap * 100, 1) if gap is not None else None,
+                    'votes': data['votes']
+                })
+
+            # Sort by gap desc, then votes desc
+            items.sort(key=lambda x: (x['gap'] is not None, x['gap'] or -1, x['votes']), reverse=True)
+            return jsonify({'congress': congress, 'scope': scope, 'chamber': chamber, 'min_votes': min_votes, 'exclude_procedural': exclude_procedural, 'items': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/subjects')
+def subjects_summary_page():
+    """Render an HTML table of subjects and party splits."""
+    try:
+        # Defaults mirror the API
+        return render_template('subjects.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 # Bill Status Tracking Endpoints
 @app.route('/api/bill/<bill_id>/status')
 def get_bill_status(bill_id):
