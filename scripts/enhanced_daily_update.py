@@ -42,84 +42,27 @@ class EnhancedDailySponsorsCosponsorsUpdater:
         })
     
     def get_bills_to_update_enhanced(self, congress: int = 119, max_bills: int = 100) -> List[str]:
-        """Get bills using enhanced selection with last_updated tracking."""
+        """Get bills using simple sequential processing with last_updated tracking."""
         
         with get_db_session() as session:
-            bill_ids = set()
-            
-            # Priority 1: Bills with no sponsor (highest priority - up to 25)
-            no_sponsor_bills = session.execute(text("""
+            # Simple approach: get bills that need updates, ordered by bill_id
+            # This ensures we process bills in a consistent order and pick up where we left off
+            bills_to_update = session.execute(text("""
                 SELECT bill_id FROM bills 
                 WHERE congress = :congress 
                 AND chamber = 'house'
-                AND sponsor_bioguide IS NULL
-                ORDER BY introduced_date DESC
-                LIMIT 25
-            """), {'congress': congress}).fetchall()
+                AND (policy_area IS NULL OR sponsor_bioguide IS NULL OR last_updated IS NULL OR last_updated < DATE_SUB(NOW(), INTERVAL 7 DAY))
+                ORDER BY bill_id ASC
+                LIMIT :limit
+            """), {
+                'congress': congress,
+                'limit': max_bills
+            }).fetchall()
             
-            for bill in no_sponsor_bills:
-                bill_ids.add(bill.bill_id)
+            bill_ids = [bill.bill_id for bill in bills_to_update]
+            logger.info(f"Selected {len(bill_ids)} bills for update (bills needing updates or stale data)")
             
-            logger.info(f"Priority 1 - Bills without sponsors: {len(no_sponsor_bills)}")
-            
-            # Priority 2: Bills never updated (up to 35)
-            never_updated_bills = session.execute(text("""
-                SELECT bill_id FROM bills 
-                WHERE congress = :congress 
-                AND chamber = 'house'
-                AND last_updated IS NULL
-                AND sponsor_bioguide IS NOT NULL
-                ORDER BY introduced_date DESC
-                LIMIT 35
-            """), {'congress': congress}).fetchall()
-            
-            for bill in never_updated_bills:
-                bill_ids.add(bill.bill_id)
-            
-            logger.info(f"Priority 2 - Never updated bills: {len(never_updated_bills)}")
-            
-            # Priority 3: Bills with recent cosponsor activity but not updated recently (up to 25)
-            recent_activity_bills = session.execute(text("""
-                SELECT DISTINCT b.bill_id, MAX(c.date) as latest_cosponsor_date
-                FROM bills b
-                JOIN cosponsors c ON b.bill_id = c.bill_id
-                WHERE b.congress = :congress 
-                AND b.chamber = 'house'
-                AND c.date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                AND (b.last_updated IS NULL OR b.last_updated < DATE_SUB(NOW(), INTERVAL 3 DAY))
-                GROUP BY b.bill_id
-                ORDER BY latest_cosponsor_date DESC
-                LIMIT 25
-            """), {'congress': congress}).fetchall()
-            
-            for bill in recent_activity_bills:
-                bill_ids.add(bill.bill_id)
-            
-            logger.info(f"Priority 3 - Recent activity bills: {len(recent_activity_bills)}")
-            
-            # Priority 4: Oldest updated bills (fill remaining slots)
-            remaining_slots = max_bills - len(bill_ids)
-            if remaining_slots > 0:
-                oldest_bills = session.execute(text("""
-                    SELECT bill_id FROM bills 
-                    WHERE congress = :congress 
-                    AND chamber = 'house'
-                    AND bill_id NOT IN :existing_ids
-                    ORDER BY last_updated ASC
-                    LIMIT :limit
-                """), {
-                    'congress': congress,
-                    'existing_ids': tuple(bill_ids) if bill_ids else ('',),
-                    'limit': remaining_slots
-                }).fetchall()
-                
-                for bill in oldest_bills:
-                    bill_ids.add(bill.bill_id)
-                
-                logger.info(f"Priority 4 - Oldest updated bills: {len(oldest_bills)}")
-            
-            logger.info(f"Total bills selected for update: {len(bill_ids)}")
-            return list(bill_ids)
+            return bill_ids
     
     def update_bill_last_updated(self, bill_id: str):
         """Update the last_updated timestamp for a bill."""
@@ -157,10 +100,14 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             if response.status_code == 200:
                 bill_data = response.json()
                 
-                # Also fetch subjects if this is new bill data
+                # Also fetch subjects and actions if this is new bill data
                 subjects = self.fetch_bill_subjects(congressgov_id)
                 if subjects:
                     bill_data['subjects'] = subjects
+                
+                actions = self.fetch_bill_actions(congressgov_id)
+                if actions:
+                    bill_data['actions'] = actions
                 
                 return bill_data
             elif response.status_code == 429:
@@ -194,6 +141,57 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             logger.debug(f"Error fetching subjects for {congressgov_id}: {e}")
         
         return subjects
+
+    def fetch_bill_actions(self, congressgov_id: str) -> List[Dict]:
+        """Fetch bill actions from Congress.gov API."""
+        actions = []
+        actions_url = f"https://api.congress.gov/v3/bill/{congressgov_id}/actions"
+        headers = {'X-API-Key': self.congressgov_api_key}
+        
+        try:
+            response = self.session.get(actions_url, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                if 'actions' in data:
+                    for action in data['actions']:
+                        actions.append({
+                            'action_date': action.get('actionDate'),
+                            'action_code': self._map_action_code(action.get('text', '')),
+                            'text': action.get('text', ''),
+                            'committee_code': action.get('committee', {}).get('systemCode', '') if action.get('committee') else None
+                        })
+                logger.debug(f"Found {len(actions)} actions for {congressgov_id}")
+            else:
+                logger.debug(f"Failed to fetch actions for {congressgov_id}: {response.status_code}")
+        except Exception as e:
+            logger.debug(f"Error fetching actions for {congressgov_id}: {e}")
+        
+        return actions
+
+    def _map_action_code(self, action_text: str) -> str:
+        """Map action text to standardized action codes."""
+        text = action_text.upper()
+        
+        if 'PASSED' in text and 'HOUSE' in text:
+            return 'PASSED_HOUSE'
+        elif 'PASSED' in text and 'SENATE' in text:
+            return 'PASSED_SENATE'
+        elif 'ENACTED' in text or ('SIGNED' in text and 'PRESIDENT' in text):
+            return 'ENACTED'
+        elif 'VETOED' in text or 'RETURNED' in text or 'POCKET' in text:
+            return 'VETOED'
+        elif 'INTRODUCED' in text:
+            return 'INTRODUCED'
+        elif 'REFERRED' in text:
+            return 'REFERRED'
+        elif 'REPORTED' in text:
+            return 'REPORTED'
+        elif 'RECEIVED' in text and 'SENATE' in text:
+            return 'RECEIVED_SENATE'
+        elif 'RECEIVED' in text and 'HOUSE' in text:
+            return 'RECEIVED_HOUSE'
+        else:
+            return 'OTHER'
     
     def update_bill_data(self, bill_id: str, bill_data: Dict) -> bool:
         """Update bill sponsor, cosponsors, policy area, and subjects data."""
@@ -253,6 +251,32 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                         subjects_updated = True
                         logger.debug(f"Updated {len(subjects)} subjects for {bill_id}")
                 
+                # Update actions if available
+                actions_updated = False
+                if 'actions' in bill_data:
+                    actions = bill_data['actions']
+                    if actions:
+                        # Delete existing actions first
+                        session.execute(text("""
+                            DELETE FROM actions WHERE bill_id = :bill_id
+                        """), {'bill_id': bill_id})
+                        
+                        # Add new actions
+                        for action in actions:
+                            session.execute(text("""
+                                INSERT INTO actions (bill_id, action_date, action_code, text, committee_code)
+                                VALUES (:bill_id, :action_date, :action_code, :text, :committee_code)
+                            """), {
+                                'bill_id': bill_id,
+                                'action_date': action['action_date'],
+                                'action_code': action['action_code'],
+                                'text': action['text'],
+                                'committee_code': action['committee_code']
+                            })
+                        
+                        actions_updated = True
+                        logger.debug(f"Updated {len(actions)} actions for {bill_id}")
+                
                 # Update last_updated timestamp
                 session.execute(text("""
                     UPDATE bills 
@@ -270,6 +294,8 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                     updates.append("policy_area")
                 if subjects_updated:
                     updates.append(f"{len(subjects)} subjects")
+                if actions_updated:
+                    updates.append(f"{len(actions)} actions")
                 
                 if updates:
                     logger.info(f"Updated {bill_id}: {', '.join(updates)}")

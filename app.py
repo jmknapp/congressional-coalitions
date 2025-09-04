@@ -25,7 +25,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, text
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
@@ -1680,6 +1680,541 @@ def get_doc_title(content):
     if match:
         return match.group(1)
     return "Documentation"
+
+# Bill Status Tracking Endpoints
+@app.route('/api/bill/<bill_id>/status')
+def get_bill_status(bill_id):
+    """Get comprehensive status for a specific bill."""
+    try:
+        with get_db_session() as session:
+            # Get all actions for the bill
+            actions_query = """
+                SELECT action_code, action_date, text, committee_code
+                FROM actions 
+                WHERE bill_id = :bill_id
+                ORDER BY action_date ASC
+            """
+            
+            actions = session.execute(text(actions_query), {'bill_id': bill_id}).fetchall()
+            
+            if not actions:
+                return jsonify({'error': 'Bill not found or no actions recorded'}), 404
+            
+            # Get bill basic info
+            bill_query = """
+                SELECT bill_id, title, congress, chamber, sponsor_bioguide, policy_area
+                FROM bills 
+                WHERE bill_id = :bill_id
+            """
+            
+            bill = session.execute(text(bill_query), {'bill_id': bill_id}).fetchone()
+            
+            if not bill:
+                return jsonify({'error': 'Bill not found'}), 404
+            
+            # Determine current status
+            action_codes = [action.action_code for action in actions]
+            
+            if 'ENACTED' in action_codes:
+                current_status = 'ENACTED'
+            elif 'VETOED' in action_codes:
+                current_status = 'VETOED'
+            elif 'PASSED_HOUSE' in action_codes and 'PASSED_SENATE' in action_codes:
+                current_status = 'PASSED_BOTH_CHAMBERS'
+            elif 'PASSED_HOUSE' in action_codes:
+                current_status = 'PASSED_HOUSE_ONLY'
+            elif 'PASSED_SENATE' in action_codes:
+                current_status = 'PASSED_SENATE_ONLY'
+            elif 'INTRODUCED' in action_codes:
+                current_status = 'INTRODUCED'
+            else:
+                current_status = 'IN_PROGRESS'
+            
+            # Get specific action dates
+            def get_action_date(action_code):
+                for action in actions:
+                    if action.action_code == action_code:
+                        return action.action_date.isoformat() if action.action_date else None
+                return None
+            
+            status_data = {
+                'bill_id': bill_id,
+                'title': bill.title,
+                'congress': bill.congress,
+                'chamber': bill.chamber,
+                'sponsor_bioguide': bill.sponsor_bioguide,
+                'policy_area': bill.policy_area,
+                'status': current_status,
+                'actions': [{
+                    'action_code': action.action_code,
+                    'action_date': action.action_date.isoformat() if action.action_date else None,
+                    'text': action.text,
+                    'committee_code': action.committee_code
+                } for action in actions],
+                'introduced_date': get_action_date('INTRODUCED'),
+                'house_pass_date': get_action_date('PASSED_HOUSE'),
+                'senate_pass_date': get_action_date('PASSED_SENATE'),
+                'enacted_date': get_action_date('ENACTED'),
+                'vetoed_date': get_action_date('VETOED'),
+                'is_law': current_status == 'ENACTED',
+                'passed_both_chambers': current_status in ['PASSED_BOTH_CHAMBERS', 'ENACTED']
+            }
+            
+            return jsonify(status_data)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bills/enacted/<int:congress>')
+def get_enacted_bills(congress):
+    """Get all bills enacted into law for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code = 'ENACTED'
+                GROUP BY b.bill_id
+                ORDER BY enacted_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'enacted_date': result.enacted_date.isoformat() if result.enacted_date else None
+            } for result in results]
+            
+            return jsonify(bills)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bills/passed-both/<int:congress>')
+def get_bills_passed_both(congress):
+    """Get bills that passed both chambers for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date,
+                       MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
+                GROUP BY b.bill_id
+                HAVING house_pass_date IS NOT NULL 
+                   AND senate_pass_date IS NOT NULL
+                ORDER BY house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None,
+                'senate_pass_date': result.senate_pass_date.isoformat() if result.senate_pass_date else None
+            } for result in results]
+            
+            return jsonify(bills)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bills/house-only/<int:congress>')
+def get_bills_passed_house_only(congress):
+    """Get bills that passed House only for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code = 'PASSED_HOUSE'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a2 
+                      WHERE a2.bill_id = b.bill_id 
+                        AND a2.action_code = 'PASSED_SENATE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a3 
+                      WHERE a3.bill_id = b.bill_id 
+                        AND a3.action_code = 'ENACTED'
+                  )
+                GROUP BY b.bill_id
+                ORDER BY house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None
+            } for result in results]
+            
+            return jsonify(bills)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bills/in-progress/<int:congress>')
+def get_bills_in_progress(congress):
+    """Get bills that are in progress (not passed, enacted, or vetoed) for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area
+                FROM bills b
+                WHERE b.congress = :congress
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a 
+                      WHERE a.bill_id = b.bill_id 
+                        AND a.action_code IN ('ENACTED', 'VETOED', 'PASSED_HOUSE', 'PASSED_SENATE')
+                  )
+                ORDER BY b.introduced_date DESC
+                LIMIT 100
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area
+            } for result in results]
+            
+            return jsonify(bills)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bills/total-passed-both/<int:congress>')
+def get_bills_total_passed_both(congress):
+    """Get all bills that passed both chambers (enacted + not enacted) for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date,
+                       MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date,
+                       MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
+                GROUP BY b.bill_id
+                HAVING house_pass_date IS NOT NULL 
+                   AND senate_pass_date IS NOT NULL
+                ORDER BY enacted_date DESC NULLS LAST, house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None,
+                'senate_pass_date': result.senate_pass_date.isoformat() if result.senate_pass_date else None,
+                'enacted_date': result.enacted_date.isoformat() if result.enacted_date else None
+            } for result in results]
+            
+            return jsonify(bills)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# HTML page routes for bill lists
+@app.route('/bills/enacted/<int:congress>')
+def bills_enacted_page(congress):
+    """HTML page showing enacted bills."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code = 'ENACTED'
+                GROUP BY b.bill_id
+                ORDER BY enacted_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'enacted_date': result.enacted_date.isoformat() if result.enacted_date else None
+            } for result in results]
+            
+            return render_template('bills_list.html', 
+                                title='Enacted Bills',
+                                subtitle='Bills signed into law',
+                                bills=bills,
+                                congress=congress)
+            
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/bills/passed-both/<int:congress>')
+def bills_passed_both_page(congress):
+    """HTML page showing bills passed both chambers (not enacted)."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date,
+                       MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
+                GROUP BY b.bill_id
+                HAVING house_pass_date IS NOT NULL 
+                   AND senate_pass_date IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a2 
+                      WHERE a2.bill_id = b.bill_id 
+                        AND a2.action_code = 'ENACTED'
+                  )
+                ORDER BY house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None,
+                'senate_pass_date': result.senate_pass_date.isoformat() if result.senate_pass_date else None
+            } for result in results]
+            
+            return render_template('bills_list.html', 
+                                title='Bills Passed Both Chambers',
+                                subtitle='Awaiting presidential action',
+                                bills=bills,
+                                congress=congress)
+            
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/bills/house-only/<int:congress>')
+def bills_house_only_page(congress):
+    """HTML page showing bills passed House only."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code = 'PASSED_HOUSE'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a2 
+                      WHERE a2.bill_id = b.bill_id 
+                        AND a2.action_code = 'PASSED_SENATE'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM actions a3 
+                      WHERE a3.bill_id = b.bill_id 
+                        AND a3.action_code = 'ENACTED'
+                  )
+                GROUP BY b.bill_id
+                ORDER BY house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None
+            } for result in results]
+            
+            return render_template('bills_list.html', 
+                                title='Bills Passed House Only',
+                                subtitle='Awaiting Senate action',
+                                bills=bills,
+                                congress=congress)
+            
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/bills/total-passed-both/<int:congress>')
+def bills_total_passed_both_page(congress):
+    """HTML page showing all bills that passed both chambers."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT DISTINCT b.bill_id, b.title, b.sponsor_bioguide, b.policy_area,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN a.action_date END) as house_pass_date,
+                       MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date,
+                       MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
+                FROM bills b
+                JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
+                GROUP BY b.bill_id
+                HAVING house_pass_date IS NOT NULL 
+                   AND senate_pass_date IS NOT NULL
+                ORDER BY enacted_date DESC NULLS LAST, house_pass_date DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            bills = [{
+                'bill_id': result.bill_id,
+                'title': result.title,
+                'sponsor_bioguide': result.sponsor_bioguide,
+                'policy_area': result.policy_area,
+                'house_pass_date': result.house_pass_date.isoformat() if result.house_pass_date else None,
+                'senate_pass_date': result.senate_pass_date.isoformat() if result.senate_pass_date else None,
+                'enacted_date': result.enacted_date.isoformat() if result.enacted_date else None
+            } for result in results]
+            
+            return render_template('bills_list.html', 
+                                title='All Bills Passed Both Chambers',
+                                subtitle='Enacted + Pending presidential action',
+                                bills=bills,
+                                congress=congress)
+            
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/api/bills/status-summary/<int:congress>')
+def get_bills_status_summary(congress):
+    """Get summary of bill statuses for a Congress."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT bill_status, COUNT(*) as bill_count
+                FROM (
+                    SELECT 
+                        CASE 
+                            WHEN MAX(CASE WHEN a.action_code = 'ENACTED' THEN 1 END) = 1 THEN 'ENACTED'
+                            WHEN MAX(CASE WHEN a.action_code = 'VETOED' THEN 1 END) = 1 THEN 'VETOED'
+                            WHEN MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN 1 END) = 1 
+                                 AND MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN 1 END) = 1 THEN 'PASSED_BOTH_CHAMBERS'
+                            WHEN MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN 1 END) = 1 THEN 'PASSED_HOUSE_ONLY'
+                            ELSE 'IN_PROGRESS'
+                        END as bill_status
+                    FROM bills b
+                    LEFT JOIN actions a ON b.bill_id = a.bill_id
+                    WHERE b.congress = :congress
+                    GROUP BY b.bill_id
+                ) as status_subquery
+                GROUP BY bill_status
+                ORDER BY bill_count DESC
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            summary = [{'bill_status': result.bill_status, 'bill_count': result.bill_count} for result in results]
+            
+            # Add total passed both chambers count
+            total_passed_both = 0
+            for item in summary:
+                if item['bill_status'] in ['ENACTED', 'PASSED_BOTH_CHAMBERS']:
+                    total_passed_both += item['bill_count']
+            
+            # Add the total to the summary
+            summary.append({
+                'bill_status': 'TOTAL_PASSED_BOTH_CHAMBERS',
+                'bill_count': total_passed_both
+            })
+            
+            return jsonify(summary)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/bill-status-test/<int:congress>')
+def debug_bill_status_test(congress):
+    """Debug endpoint to test bill status logic on a few bills."""
+    try:
+        with get_db_session() as session:
+            # Test with a few bills to see what's happening
+            query = """
+                SELECT b.bill_id,
+                       MAX(CASE WHEN a.action_code = 'ENACTED' THEN 1 END) as has_enacted,
+                       MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN 1 END) as has_passed_house,
+                       MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN 1 END) as has_passed_senate,
+                       CASE 
+                           WHEN MAX(CASE WHEN a.action_code = 'ENACTED' THEN 1 END) = 1 THEN 'ENACTED'
+                           WHEN MAX(CASE WHEN a.action_code = 'VETOED' THEN 1 END) = 1 THEN 'VETOED'
+                           WHEN MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN 1 END) = 1 
+                                AND MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN 1 END) = 1 THEN 'PASSED_BOTH_CHAMBERS'
+                           WHEN MAX(CASE WHEN a.action_code = 'PASSED_HOUSE' THEN 1 END) = 1 THEN 'PASSED_HOUSE_ONLY'
+                           ELSE 'IN_PROGRESS'
+                       END as calculated_status
+                FROM bills b
+                LEFT JOIN actions a ON b.bill_id = a.bill_id
+                WHERE b.congress = :congress
+                  AND (a.action_code IN ('ENACTED', 'PASSED_HOUSE', 'PASSED_SENATE') OR a.action_code IS NULL)
+                GROUP BY b.bill_id
+                HAVING has_enacted = 1 OR has_passed_house = 1 OR has_passed_senate = 1
+                ORDER BY has_enacted DESC, has_passed_house DESC, has_passed_senate DESC
+                LIMIT 10
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            debug_data = [{
+                'bill_id': result.bill_id,
+                'has_enacted': result.has_enacted,
+                'has_passed_house': result.has_passed_house,
+                'has_passed_senate': result.has_passed_senate,
+                'calculated_status': result.calculated_status
+            } for result in results]
+            
+            return jsonify(debug_data)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug/bills-needing-updates/<int:congress>')
+def debug_bills_needing_updates(congress):
+    """Debug endpoint to see which bills need updates."""
+    try:
+        with get_db_session() as session:
+            query = """
+                SELECT bill_id, last_updated, policy_area, sponsor_bioguide 
+                FROM bills 
+                WHERE congress = :congress 
+                AND chamber = 'house'
+                AND (policy_area IS NULL OR sponsor_bioguide IS NULL OR last_updated IS NULL OR last_updated < DATE_SUB(NOW(), INTERVAL 7 DAY))
+                ORDER BY bill_id ASC
+                LIMIT 20
+            """
+            
+            results = session.execute(text(query), {'congress': congress}).fetchall()
+            debug_data = [{
+                'bill_id': result.bill_id,
+                'last_updated': result.last_updated.isoformat() if result.last_updated else None,
+                'policy_area': result.policy_area,
+                'sponsor_bioguide': result.sponsor_bioguide
+            } for result in results]
+            
+            return jsonify(debug_data)
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

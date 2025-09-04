@@ -78,6 +78,76 @@
             </div>
         </div>
 
+        <!-- Bill Status Summary -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-clipboard-check me-2"></i>Bill Status Summary</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="h3 text-success mb-1" id="enacted-count" style="cursor: pointer;" 
+                                         onclick="openBillList('enacted', 119)" 
+                                         title="Click to view enacted bills" 
+                                         data-bs-toggle="tooltip">-</div>
+                                    <small class="text-muted">Enacted into Law</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="h3 text-primary mb-1" id="passed-both-count" style="cursor: pointer;" 
+                                         onclick="openBillList('passed-both', 119)" 
+                                         title="Click to view bills passed both chambers (not enacted)" 
+                                         data-bs-toggle="tooltip">-</div>
+                                    <small class="text-muted">Passed Both Chambers (NOT ENACTED)</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="h3 text-warning mb-1" id="house-only-count" style="cursor: pointer;" 
+                                         onclick="openBillList('house-only', 119)" 
+                                         title="Click to view bills passed House only" 
+                                         data-bs-toggle="tooltip">-</div>
+                                    <small class="text-muted">Passed House Only</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="h3 text-info mb-1" id="in-progress-count" style="cursor: pointer;" 
+                                         onclick="openBillList('in-progress', 119)" 
+                                         title="Click to view bills in progress" 
+                                         data-bs-toggle="tooltip">-</div>
+                                    <small class="text-muted">In Progress</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-md-6 offset-md-3">
+                                <div class="text-center">
+                                    <div class="h4 text-secondary mb-1" id="total-passed-both-count" style="cursor: pointer;" 
+                                         onclick="openBillList('total-passed-both', 119)" 
+                                         title="Click to view all bills that passed both chambers" 
+                                         data-bs-toggle="tooltip">-</div>
+                                    <small class="text-muted">Total Passed Both Chambers (Enacted + Pending)</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-outline-primary btn-sm" onclick="loadBillStatusSummary()">
+                                <i class="fas fa-refresh me-1"></i>Refresh Status
+                            </button>
+                            <a href="/docs/bill-status-tracking.md" class="btn btn-outline-secondary btn-sm ms-2">
+                                <i class="fas fa-book me-1"></i>Status Guide
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Time Period Indicator -->
         <div class="row mb-3">
             <div class="col-12">
@@ -452,6 +522,82 @@
         
         // Show current mode in console on page load
         console.log(`Developer Mode: ${developerMode ? 'ENABLED' : 'DISABLED'} (Shift+Ctrl+D to toggle)`);
+        
+        // Bill Status Functions
+        async function loadBillStatusSummary() {
+            try {
+                const response = await fetch('/api/bills/status-summary/119');
+                const summary = await response.json();
+                
+                // Update counts
+                summary.forEach(item => {
+                    switch(item.bill_status) {
+                        case 'ENACTED':
+                            document.getElementById('enacted-count').textContent = item.bill_count;
+                            break;
+                        case 'PASSED_BOTH_CHAMBERS':
+                            document.getElementById('passed-both-count').textContent = item.bill_count;
+                            break;
+                        case 'PASSED_HOUSE_ONLY':
+                            document.getElementById('house-only-count').textContent = item.bill_count;
+                            break;
+                        case 'IN_PROGRESS':
+                            document.getElementById('in-progress-count').textContent = item.bill_count;
+                            break;
+                        case 'TOTAL_PASSED_BOTH_CHAMBERS':
+                            document.getElementById('total-passed-both-count').textContent = item.bill_count;
+                            break;
+                    }
+                });
+                
+                console.log('Bill status summary loaded successfully');
+            } catch (error) {
+                console.error('Error loading bill status summary:', error);
+            }
+        }
+        
+        function openBillList(status, congress) {
+            let url;
+            
+            switch(status) {
+                case 'enacted':
+                    url = `/bills/enacted/${congress}`;
+                    break;
+                case 'passed-both':
+                    url = `/bills/passed-both/${congress}`;
+                    break;
+                case 'house-only':
+                    url = `/bills/house-only/${congress}`;
+                    break;
+                case 'in-progress':
+                    url = `/api/bills/in-progress/${congress}`;
+                    break;
+                case 'total-passed-both':
+                    url = `/bills/total-passed-both/${congress}`;
+                    break;
+                default:
+                    console.error('Unknown status:', status);
+                    return;
+            }
+            
+            // Open the HTML page in a new tab
+            window.open(url, '_blank');
+        }
+        
+        // Load bill status summary on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadBillStatusSummary();
+            
+            // Initialize tooltips
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+        
     </script>
+    
+    <!-- Bootstrap JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
