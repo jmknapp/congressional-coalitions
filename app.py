@@ -29,6 +29,13 @@ from sqlalchemy import or_, and_, text
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
+import numpy as np
+try:
+    from sklearn.decomposition import TruncatedSVD
+    from sklearn.cluster import KMeans
+    _SKLEARN_AVAILABLE = True
+except Exception:
+    _SKLEARN_AVAILABLE = False
 
 def load_caucus_data():
     """Load caucus membership data from database."""
@@ -1833,6 +1840,172 @@ def subjects_summary_page():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+# -----------------------------
+# Clusters (quick MVP)
+# -----------------------------
+
+@app.route('/api/clusters')
+def api_clusters():
+    """Compute quick vote-pattern clusters for members (House by default).
+
+    Returns 2D SVD coordinates and KMeans cluster labels.
+
+    Params:
+      - congress: int (default 119)
+      - chamber: 'house' | 'senate' (default 'house')
+      - rc_limit: max roll calls to include (default 400, newest by date)
+      - min_votes: min votes a member must have among included RCs (default 50)
+      - k: number of clusters for KMeans (default 5)
+      - exclude_procedural: bool (default true)
+    """
+    if not _SKLEARN_AVAILABLE:
+        return jsonify({'error': 'scikit-learn not available in this runtime'}), 500
+    try:
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        rc_limit = int(request.args.get('rc_limit', 400))
+        min_votes = int(request.args.get('min_votes', 50))
+        k = int(request.args.get('k', 5))
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+
+        with get_db_session() as session:
+            # 1) Get recent rollcalls for scope
+            rc_query = """
+                SELECT r.rollcall_id, r.date, r.question
+                FROM rollcalls r
+                JOIN bills b ON r.bill_id = b.bill_id
+                WHERE r.congress = :congress AND r.chamber = :chamber
+                  AND b.congress = :congress AND b.chamber = :chamber
+                  AND b.bill_id LIKE CONCAT('%-', :congress)
+                ORDER BY r.date DESC
+                LIMIT :limit
+            """
+            rc_rows = session.execute(text(rc_query), {'congress': congress, 'chamber': chamber, 'limit': rc_limit}).fetchall()
+            rc_ids = [row.rollcall_id for row in rc_rows]
+            if not rc_ids:
+                return jsonify({'error': 'No roll calls found for scope'}), 404
+
+            # 2) Fetch votes (Yea/Nay only) for those rollcalls, house members only if chamber=house
+            procedural_filter = ''
+            if exclude_procedural:
+                procedural_filter = (
+                    " AND ("
+                    " r.question IS NULL OR ("
+                    " r.question NOT LIKE '%rule%' AND"
+                    " r.question NOT LIKE '%previous question%' AND"
+                    " r.question NOT LIKE '%recommit%' AND"
+                    " r.question NOT LIKE '%motion to table%' AND"
+                    " r.question NOT LIKE '%quorum%' AND"
+                    " r.question NOT LIKE '%adjourn%' AND"
+                    " r.question NOT LIKE '%suspend the rules%'"
+                    ") )"
+                )
+
+            votes_query = f"""
+                SELECT v.rollcall_id, v.member_id_bioguide, v.vote_code
+                FROM votes v
+                JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
+                JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
+                WHERE v.rollcall_id IN :rc_ids
+                  AND v.vote_code IN ('Yea','Nay')
+                  {'AND m.district IS NOT NULL' if chamber == 'house' else ''}
+                  {procedural_filter}
+            """
+            votes_rows = session.execute(text(votes_query), {'rc_ids': tuple(rc_ids)}).fetchall()
+
+            # 3) Member metadata
+            members_q = session.query(Member).filter(Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)).all()
+            members = {m.member_id_bioguide: m for m in members_q}
+
+        # Build index maps
+        rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids)}
+        member_ids = sorted({row.member_id_bioguide for row in votes_rows if row.member_id_bioguide in members})
+        if not member_ids:
+            return jsonify({'error': 'No member votes found'}), 404
+        mem_index = {mid: i for i, mid in enumerate(member_ids)}
+
+        # Matrix: rows=members, cols=rollcalls, values in {-1,0,+1}
+        M = np.zeros((len(member_ids), len(rc_ids)), dtype=np.float32)
+        counts = np.zeros(len(member_ids), dtype=np.int32)
+        for rc_id, mid, code in votes_rows:
+            if mid not in mem_index:
+                continue
+            i = mem_index[mid]
+            j = rc_index.get(rc_id)
+            if j is None:
+                continue
+            val = 1.0 if code == 'Yea' else -1.0
+            M[i, j] = val
+            counts[i] += 1
+
+        # Filter members with too few votes
+        keep = counts >= min_votes
+        if not np.any(keep):
+            return jsonify({'error': 'No members meet min_votes threshold'}), 400
+        M = M[keep]
+        kept_member_ids = [mid for mid in member_ids if keep[mem_index[mid]]]
+
+        # Center per member (zero mean across present votes) to reduce baseline bias
+        row_sums = M.sum(axis=1, keepdims=True)
+        row_counts = (M != 0).sum(axis=1, keepdims=True)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            row_means = np.divide(row_sums, row_counts, out=np.zeros_like(row_sums), where=row_counts!=0)
+        M_centered = M - row_means
+        # Fill remaining zeros for stability
+        M_centered = np.nan_to_num(M_centered, nan=0.0)
+
+        # SVD reduce to 10 components, then use first 2 for plotting
+        comps = min(10, min(M_centered.shape)-1)
+        if comps < 2:
+            return jsonify({'error': 'Insufficient variation for SVD'}), 400
+        svd = TruncatedSVD(n_components=comps, random_state=42)
+        Z = svd.fit_transform(M_centered)
+
+        # KMeans on reduced space
+        km = KMeans(n_clusters=max(2, k), n_init=10, random_state=42)
+        labels = km.fit_predict(Z)
+
+        # 2D coords
+        xy = Z[:, :2]
+        # Normalize to [0,1] for easy plotting
+        mins = xy.min(axis=0)
+        maxs = xy.max(axis=0)
+        denom = np.where((maxs - mins) == 0, 1, (maxs - mins))
+        norm_xy = (xy - mins) / denom
+
+        # Build response
+        items = []
+        for idx, mid in enumerate(kept_member_ids):
+            m = members.get(mid)
+            items.append({
+                'id': mid,
+                'name': (f"{m.first} {m.last}" if m else mid),
+                'party': (m.party if m else None),
+                'x': float(norm_xy[idx, 0]),
+                'y': float(norm_xy[idx, 1]),
+                'cluster': int(labels[idx])
+            })
+
+        return jsonify({
+            'congress': congress,
+            'chamber': chamber,
+            'rc_limit': rc_limit,
+            'min_votes': min_votes,
+            'k': k,
+            'exclude_procedural': exclude_procedural,
+            'count': len(items),
+            'items': items
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/clusters')
+def clusters_page():
+    """Simple scatter visualization for clusters using the API."""
+    try:
+        return render_template('clusters.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
 @app.route('/subjects/bills')
 def subjects_bills_page():
     """List bills with votes for a given subject.
