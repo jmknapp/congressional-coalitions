@@ -23,7 +23,7 @@ DEV_MODE = os.environ.get('DEV_MODE', 'false').lower() == 'true'
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.utils.database import get_db_session
-from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action
+from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action, BillSubject
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
 from sqlalchemy import or_, and_, text
 from scripts.simple_house_analysis import run_simple_house_analysis
@@ -1841,6 +1841,142 @@ def subjects_summary_page():
         return f"Error: {str(e)}", 500
 
 # -----------------------------
+# Reference data: Policy Areas
+# -----------------------------
+
+@app.route('/api/policy-areas')
+def api_policy_areas():
+    """Return list of available policy areas for a given congress/chamber.
+
+    Query params: congress (default 119), chamber (default 'house'),
+    exclude_procedural (default true), min_votes (default 5)
+    """
+    try:
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        min_votes = int(request.args.get('min_votes', 5))
+        with get_db_session() as session:
+            proc = (
+                " AND (r.question IS NULL OR ("
+                " r.question NOT LIKE '%rule%' AND"
+                " r.question NOT LIKE '%previous question%' AND"
+                " r.question NOT LIKE '%recommit%' AND"
+                " r.question NOT LIKE '%motion to table%' AND"
+                " r.question NOT LIKE '%quorum%' AND"
+                " r.question NOT LIKE '%adjourn%' AND"
+                " r.question NOT LIKE '%suspend the rules%'"
+                "))"
+            ) if exclude_procedural else ""
+
+            # Only include policy areas where at least one member has >= min_votes Yea/Nay votes
+            query = f"""
+                SELECT rc.policy_area, rc.vote_count
+                FROM (
+                    SELECT b.policy_area AS policy_area, COUNT(DISTINCT r.rollcall_id) AS vote_count
+                    FROM bills b
+                    JOIN rollcalls r ON r.bill_id = b.bill_id
+                    WHERE b.congress = :congress
+                      AND b.chamber = :chamber
+                      AND b.bill_id LIKE CONCAT('%-', :congress)
+                      AND b.policy_area IS NOT NULL AND b.policy_area <> ''
+                      {proc}
+                    GROUP BY b.policy_area
+                ) rc
+                JOIN (
+                    SELECT t.policy_area
+                    FROM (
+                        SELECT b.policy_area AS policy_area, v.member_id_bioguide AS member_id, COUNT(*) AS member_votes
+                        FROM votes v
+                        JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
+                        JOIN bills b ON r.bill_id = b.bill_id
+                        JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
+                        WHERE b.congress = :congress
+                          AND b.chamber = :chamber
+                          AND b.bill_id LIKE CONCAT('%-', :congress)
+                          AND v.vote_code IN ('Yea','Nay')
+                          {proc}
+                        GROUP BY b.policy_area, v.member_id_bioguide
+                    ) t
+                    GROUP BY t.policy_area
+                    HAVING MAX(t.member_votes) >= :min_votes
+                ) q ON q.policy_area = rc.policy_area
+                ORDER BY rc.vote_count DESC, rc.policy_area ASC
+            """
+            rows = session.execute(text(query), {'congress': congress, 'chamber': chamber, 'min_votes': min_votes}).fetchall()
+            items = [{'name': row.policy_area, 'count': int(row.vote_count or 0)} for row in rows]
+            return jsonify({'congress': congress, 'chamber': chamber, 'exclude_procedural': exclude_procedural, 'min_votes': min_votes, 'count': len(items), 'items': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/subject-terms')
+def api_subject_terms():
+    """Return list of subject terms ordered by number of roll calls (votes) desc.
+
+    Query params: congress (default 119), chamber (default 'house'),
+    exclude_procedural (default true), min_votes (default 5)
+    """
+    try:
+        congress = int(request.args.get('congress', 119))
+        chamber = request.args.get('chamber', 'house')
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        min_votes = int(request.args.get('min_votes', 5))
+        with get_db_session() as session:
+            proc = (
+                " AND (r.question IS NULL OR ("
+                " r.question NOT LIKE '%rule%' AND"
+                " r.question NOT LIKE '%previous question%' AND"
+                " r.question NOT LIKE '%recommit%' AND"
+                " r.question NOT LIKE '%motion to table%' AND"
+                " r.question NOT LIKE '%quorum%' AND"
+                " r.question NOT LIKE '%adjourn%' AND"
+                " r.question NOT LIKE '%suspend the rules%'"
+                "))"
+            ) if exclude_procedural else ""
+
+            query = f"""
+                SELECT rc.subject_term, rc.vote_count
+                FROM (
+                    SELECT s.subject_term AS subject_term, COUNT(DISTINCT r.rollcall_id) AS vote_count
+                    FROM bill_subjects s
+                    JOIN bills b ON b.bill_id = s.bill_id
+                    JOIN rollcalls r ON r.bill_id = b.bill_id
+                    WHERE b.congress = :congress
+                      AND b.chamber = :chamber
+                      AND b.bill_id LIKE CONCAT('%-', :congress)
+                      AND s.subject_term IS NOT NULL AND s.subject_term <> ''
+                      {proc}
+                    GROUP BY s.subject_term
+                ) rc
+                JOIN (
+                    SELECT t.subject_term
+                    FROM (
+                        SELECT s.subject_term AS subject_term, v.member_id_bioguide AS member_id, COUNT(*) AS member_votes
+                        FROM votes v
+                        JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
+                        JOIN bills b ON r.bill_id = b.bill_id
+                        JOIN bill_subjects s ON s.bill_id = b.bill_id
+                        JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
+                        WHERE b.congress = :congress
+                          AND b.chamber = :chamber
+                          AND b.bill_id LIKE CONCAT('%-', :congress)
+                          AND s.subject_term IS NOT NULL AND s.subject_term <> ''
+                          AND v.vote_code IN ('Yea','Nay')
+                          {proc}
+                        GROUP BY s.subject_term, v.member_id_bioguide
+                    ) t
+                    GROUP BY t.subject_term
+                    HAVING MAX(t.member_votes) >= :min_votes
+                ) q ON q.subject_term = rc.subject_term
+                ORDER BY rc.vote_count DESC, rc.subject_term ASC
+            """
+            rows = session.execute(text(query), {'congress': congress, 'chamber': chamber, 'min_votes': min_votes}).fetchall()
+            items = [{'name': row.subject_term, 'count': int(row.vote_count or 0)} for row in rows]
+            return jsonify({'congress': congress, 'chamber': chamber, 'exclude_procedural': exclude_procedural, 'min_votes': min_votes, 'count': len(items), 'items': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# -----------------------------
 # Clusters (quick MVP)
 # -----------------------------
 
@@ -1857,33 +1993,45 @@ def api_clusters():
       - min_votes: min votes a member must have among included RCs (default 50)
       - k: number of clusters for KMeans (default 5)
       - exclude_procedural: bool (default true)
+      - scope: 'policy_area' | 'subject_term' (optional)
+      - subject: comma-separated list of subjects to filter roll calls (optional)
     """
     if not _SKLEARN_AVAILABLE:
         return jsonify({'error': 'scikit-learn not available in this runtime'}), 500
     try:
         congress = int(request.args.get('congress', 119))
         chamber = request.args.get('chamber', 'house')
-        rc_limit = int(request.args.get('rc_limit', 400))
-        min_votes = int(request.args.get('min_votes', 50))
+        rc_limit_param = request.args.get('rc_limit')  # if omitted, include all
+        rc_limit = int(rc_limit_param) if rc_limit_param is not None else None
+        min_votes = int(request.args.get('min_votes', 5))
         k = int(request.args.get('k', 5))
         exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        scope = request.args.get('scope')  # None, 'policy_area', or 'subject_term'
+        subject_param = request.args.get('subject')
+        subjects = [s.strip() for s in subject_param.split(',')] if subject_param else []
 
         with get_db_session() as session:
-            # 1) Get recent rollcalls for scope
-            rc_query = """
-                SELECT r.rollcall_id, r.date, r.question
-                FROM rollcalls r
-                JOIN bills b ON r.bill_id = b.bill_id
-                WHERE r.congress = :congress AND r.chamber = :chamber
-                  AND b.congress = :congress AND b.chamber = :chamber
-                  AND b.bill_id LIKE CONCAT('%-', :congress)
-                ORDER BY r.date DESC
-                LIMIT :limit
-            """
-            rc_rows = session.execute(text(rc_query), {'congress': congress, 'chamber': chamber, 'limit': rc_limit}).fetchall()
+            # 1) Get recent rollcalls for scope (ORM for portability)
+            rc_q = session.query(Rollcall.rollcall_id, Rollcall.date, Rollcall.question) \
+                          .join(Bill, Rollcall.bill_id == Bill.bill_id) \
+                          .filter(Rollcall.congress == congress, Rollcall.chamber == chamber) \
+                          .filter(Bill.congress == congress, Bill.chamber == chamber) \
+                          .filter(Bill.bill_id.like(f"%-{congress}"))
+
+            # Optional: filter by subject(s)
+            if subjects and scope in ('policy_area', 'subject_term'):
+                if scope == 'policy_area':
+                    rc_q = rc_q.filter(Bill.policy_area.in_(subjects))
+                else:
+                    rc_q = rc_q.join(BillSubject, BillSubject.bill_id == Bill.bill_id).filter(BillSubject.subject_term.in_(subjects))
+
+            rc_q = rc_q.order_by(Rollcall.date.desc())
+            if rc_limit:
+                rc_q = rc_q.limit(rc_limit)
+            rc_rows = rc_q.all()
             rc_ids = [row.rollcall_id for row in rc_rows]
             if not rc_ids:
-                return jsonify({'error': 'No roll calls found for scope'}), 404
+                return jsonify({'error': 'No roll calls found for scope', 'detail': {'subjects': subjects, 'scope': scope}}), 404
 
             # 2) Fetch votes (Yea/Nay only) for those rollcalls, house members only if chamber=house
             procedural_filter = ''
@@ -1901,21 +2049,48 @@ def api_clusters():
                     ") )"
                 )
 
-            votes_query = f"""
-                SELECT v.rollcall_id, v.member_id_bioguide, v.vote_code
-                FROM votes v
-                JOIN rollcalls r ON v.rollcall_id = r.rollcall_id
-                JOIN members m ON v.member_id_bioguide = m.member_id_bioguide
-                WHERE v.rollcall_id IN :rc_ids
-                  AND v.vote_code IN ('Yea','Nay')
-                  {'AND m.district IS NOT NULL' if chamber == 'house' else ''}
-                  {procedural_filter}
-            """
-            votes_rows = session.execute(text(votes_query), {'rc_ids': tuple(rc_ids)}).fetchall()
+            # Use ORM for IN list and optional procedural filter
+            vq = session.query(Vote.rollcall_id, Vote.member_id_bioguide, Vote.vote_code) \
+                     .join(Rollcall, Vote.rollcall_id == Rollcall.rollcall_id) \
+                     .join(Member, Vote.member_id_bioguide == Member.member_id_bioguide) \
+                     .filter(Vote.rollcall_id.in_(rc_ids)) \
+                     .filter(Vote.vote_code.in_(['Yea','Nay']))
+            if chamber == 'house':
+                vq = vq.filter(Member.district.isnot(None))
+            if exclude_procedural:
+                vq = vq.filter(
+                    or_(
+                        Rollcall.question.is_(None),
+                        and_(
+                            ~Rollcall.question.ilike('%rule%'),
+                            ~Rollcall.question.ilike('%previous question%'),
+                            ~Rollcall.question.ilike('%recommit%'),
+                            ~Rollcall.question.ilike('%motion to table%'),
+                            ~Rollcall.question.ilike('%quorum%'),
+                            ~Rollcall.question.ilike('%adjourn%'),
+                            ~Rollcall.question.ilike('%suspend the rules%')
+                        )
+                    )
+                )
+            votes_rows = vq.all()
 
             # 3) Member metadata
-            members_q = session.query(Member).filter(Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)).all()
-            members = {m.member_id_bioguide: m for m in members_q}
+            # Fetch only needed fields and detach into plain dict to avoid detached-instance errors
+            members_rows = session.query(
+                Member.member_id_bioguide, Member.first, Member.last, Member.party, Member.state, Member.district
+            ).filter(
+                Member.district.isnot(None) if chamber == 'house' else Member.district.is_(None)
+            ).all()
+            members = {
+                row.member_id_bioguide: {
+                    'first': row.first or '',
+                    'last': row.last or '',
+                    'party': row.party,
+                    'state': row.state,
+                    'district': row.district
+                }
+                for row in members_rows
+            }
 
         # Build index maps
         rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids)}
@@ -1941,9 +2116,15 @@ def api_clusters():
         # Filter members with too few votes
         keep = counts >= min_votes
         if not np.any(keep):
-            return jsonify({'error': 'No members meet min_votes threshold'}), 400
+            return jsonify({'error': 'No members meet min_votes threshold', 'detail': {'min_votes': int(min_votes), 'members_with_votes': int((counts>0).sum())}}), 400
         M = M[keep]
         kept_member_ids = [mid for mid in member_ids if keep[mem_index[mid]]]
+
+        # Drop columns (rollcalls) with no data after member filter
+        nonzero_cols_mask = (M != 0).any(axis=0)
+        if not np.any(nonzero_cols_mask):
+            return jsonify({'error': 'No usable roll calls after filters', 'detail': {'rc_count': int(len(rc_ids)), 'min_votes': int(min_votes)}}), 400
+        M = M[:, nonzero_cols_mask]
 
         # Center per member (zero mean across present votes) to reduce baseline bias
         row_sums = M.sum(axis=1, keepdims=True)
@@ -1954,10 +2135,11 @@ def api_clusters():
         # Fill remaining zeros for stability
         M_centered = np.nan_to_num(M_centered, nan=0.0)
 
-        # SVD reduce to 10 components, then use first 2 for plotting
-        comps = min(10, min(M_centered.shape)-1)
-        if comps < 2:
-            return jsonify({'error': 'Insufficient variation for SVD'}), 400
+        # SVD reduce to up to 10 components, but ensure at least 2
+        max_rank = int(min(M_centered.shape) - 1)
+        if max_rank < 2:
+            return jsonify({'error': 'Insufficient variation for SVD', 'detail': {'rows': int(M_centered.shape[0]), 'cols': int(M_centered.shape[1])}}), 400
+        comps = min(10, max_rank)
         svd = TruncatedSVD(n_components=comps, random_state=42)
         Z = svd.fit_transform(M_centered)
 
@@ -1973,26 +2155,48 @@ def api_clusters():
         denom = np.where((maxs - mins) == 0, 1, (maxs - mins))
         norm_xy = (xy - mins) / denom
 
+        # Load caucus membership sets for badges
+        caucus_data = load_caucus_data()
+
         # Build response
         items = []
         for idx, mid in enumerate(kept_member_ids):
             m = members.get(mid)
+            # Badge flags
+            fc = mid in caucus_data.get('freedom_caucus', set())
+            pc = mid in caucus_data.get('progressive_caucus', set())
+            bd = mid in caucus_data.get('blue_dog_coalition', set())
+            maga = mid in caucus_data.get('maga_republicans', set())
+            cbc = mid in caucus_data.get('congressional_black_caucus', set())
+            tb = mid in caucus_data.get('true_blue_democrats', set())
             items.append({
                 'id': mid,
-                'name': (f"{m.first} {m.last}" if m else mid),
-                'party': (m.party if m else None),
+                'name': (f"{m['first']} {m['last']}".strip() if m else mid),
+                'party': (m['party'] if m else None),
+                'state': (m['state'] if m else None),
+                'district': (int(m['district']) if (m and m['district'] is not None) else None),
                 'x': float(norm_xy[idx, 0]),
                 'y': float(norm_xy[idx, 1]),
-                'cluster': int(labels[idx])
+                'cluster': int(labels[idx]),
+                'badges': {
+                    'fc': fc,
+                    'pc': pc,
+                    'bd': bd,
+                    'maga': maga,
+                    'cbc': cbc,
+                    'tb': tb
+                }
             })
 
         return jsonify({
             'congress': congress,
             'chamber': chamber,
-            'rc_limit': rc_limit,
+            'rc_limit': (rc_limit if rc_limit is not None else 'all'),
             'min_votes': min_votes,
             'k': k,
             'exclude_procedural': exclude_procedural,
+            'scope': scope,
+            'subjects': subjects,
             'count': len(items),
             'items': items
         })

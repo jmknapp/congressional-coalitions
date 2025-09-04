@@ -5,9 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Member Clusters</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
   <style>
     .legend-swatch{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px}
     .point{cursor:pointer}
+    .tooltip-card{position:absolute; pointer-events:none; z-index:1000; background:#fff; border:1px solid #ddd; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.15); padding:8px 10px; display:none; min-width:220px}
+    .tooltip-card img{width:64px; height:64px; object-fit:cover; border-radius:4px; margin-right:10px}
+    .tooltip-card .title{font-weight:600}
+    .tooltip-card .sub{color:#666; font-size:0.9em}
   </style>
 </head>
 <body>
@@ -24,28 +30,29 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h3>Vote Pattern Clusters</h3>
       <div class="d-flex gap-2">
+        <input id="subject" class="form-control form-control-sm" style="width:220px; display:none" placeholder="Subject term(s); comma-separated"/>
+        <select id="subjectTerm" class="form-select form-select-sm" style="width:220px; display:none">
+          <option value="">All subject terms</option>
+        </select>
+        <select id="policyArea" class="form-select form-select-sm" style="width:220px; display:none">
+          <option value="">All policy areas</option>
+        </select>
+        <select id="scope" class="form-select form-select-sm" style="width:150px">
+          <option value="policy_area" selected>Policy Area</option>
+          <option value="subject_term">Subject Term</option>
+        </select>
         <select id="k" class="form-select form-select-sm" style="width:100px">
           <option value="4">k=4</option>
           <option value="5" selected>k=5</option>
           <option value="6">k=6</option>
           <option value="8">k=8</option>
         </select>
-        <select id="rcLimit" class="form-select form-select-sm" style="width:120px">
-          <option value="200">RC=200</option>
-          <option value="300">RC=300</option>
-          <option value="400" selected>RC=400</option>
-          <option value="600">RC=600</option>
-        </select>
-        <select id="minVotes" class="form-select form-select-sm" style="width:120px">
-          <option value="30">MinV=30</option>
-          <option value="50" selected>MinV=50</option>
-          <option value="80">MinV=80</option>
-        </select>
         <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" id="excludeProcedural" checked>
           <label class="form-check-label" for="excludeProcedural">Exclude procedural</label>
         </div>
         <button id="refresh" class="btn btn-sm btn-primary">Refresh</button>
+        <button id="reset" class="btn btn-sm btn-outline-secondary">Reset</button>
       </div>
     </div>
 
@@ -81,6 +88,20 @@
   </div>
 
   <script>
+    // tooltip element
+    const tip = document.createElement('div');
+    tip.className = 'tooltip-card';
+    document.body.appendChild(tip);
+
+    // zoom/pan state
+    const VB_W = 800, VB_H = 600;
+    let zScale = 1.0, zTx = 0, zTy = 0; // transform in viewBox units
+    let isPanning = false, panLast = {x:0,y:0};
+    function updateTransform(){
+      const content = document.getElementById('content');
+      if (content) content.setAttribute('transform', `translate(${zTx},${zTy}) scale(${zScale})`);
+    }
+
     const partyColors = { 'D': '#2b6cb0', 'R': '#c53030', 'I': '#718096', '': '#718096', null: '#718096', undefined: '#718096' };
     function clusterColor(idx){
       const palette = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
@@ -89,11 +110,17 @@
 
     async function load() {
       const k = document.getElementById('k').value;
-      const rcLimit = document.getElementById('rcLimit').value;
-      const minVotes = document.getElementById('minVotes').value;
       const excludeProcedural = document.getElementById('excludeProcedural').checked;
-      const url = `/api/clusters?k=${k}&rc_limit=${rcLimit}&min_votes=${minVotes}&exclude_procedural=${excludeProcedural}`;
+      const scope = document.getElementById('scope').value;
+      const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+      const url = `/api/clusters?k=${k}&exclude_procedural=${excludeProcedural}` +
+                  (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
       const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        alert(`API error (${res.status}):\n${text}`);
+        return;
+      }
       const data = await res.json();
       render(data.items || []);
     }
@@ -102,10 +129,14 @@
       const svg = document.getElementById('plot');
       while(svg.firstChild) svg.removeChild(svg.firstChild);
       const w=800,h=600, pad=30;
+      // content group for zoom/pan
+      const content = document.createElementNS('http://www.w3.org/2000/svg','g');
+      content.setAttribute('id','content');
+      svg.appendChild(content);
       // axes
       const axes = document.createElementNS('http://www.w3.org/2000/svg','g');
       axes.innerHTML = `<line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#ddd"/>\n                        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}" stroke="#ddd"/>`;
-      svg.appendChild(axes);
+      content.appendChild(axes);
 
       const colorBy = document.querySelector('input[name="colorBy"]:checked').value;
       const makeColor = (d)=> colorBy==='party' ? partyColors[(d.party||'').substring(0,1).toUpperCase()] : clusterColor(d.cluster);
@@ -119,13 +150,43 @@
         circ.setAttribute('r',4);
         circ.setAttribute('fill', makeColor(d));
         circ.setAttribute('class','point');
-        circ.setAttribute('data-title', `${d.name} (${d.party||''}) — C${d.cluster}`);
+        // custom tooltip
         circ.addEventListener('mouseenter', (e)=>{
-          const t = e.target.getAttribute('data-title');
-          svg.title = t;
+          const imgUrl = `/api/member-image/${d.id}`;
+          const state = d.state ? d.state : '';
+          const district = (d.district!==null && d.district!==undefined) ? `-${d.district}` : '';
+          // badges
+          const b = d.badges || {};
+          const badgeSpans = [];
+          if (b.fc) badgeSpans.push('<span class="badge fc-pink-badge me-1 mb-1"><i class="fas fa-scale-unbalanced me-1"></i>FC</span>');
+          if (b.pc) badgeSpans.push('<span class="badge bg-info text-white me-1 mb-1"><i class="fas fa-arrow-trend-up me-1"></i>PC</span>');
+          if (b.bd) badgeSpans.push('<span class="badge bg-info text-white me-1 mb-1"><i class="fas fa-dog me-1"></i>BD</span>');
+          if (b.maga) badgeSpans.push('<span class="badge bg-danger text-white me-1 mb-1"><i class="fas fa-biohazard me-1"></i>MAGA</span>');
+          if (b.cbc) badgeSpans.push('<span class="badge text-white me-1 mb-1" style="background-color: #1a237e;"><i class="fas fa-users me-1"></i>CBC</span>');
+          if (b.tb) badgeSpans.push('<span class="badge bg-primary text-white me-1 mb-1"><i class="fas fa-heart me-1"></i>TB</span>');
+          const badgesHtml = badgeSpans.length ? `<div class="mt-1">${badgeSpans.join(' ')}</div>` : '';
+          tip.innerHTML = `
+            <div class="d-flex align-items-center">
+              <img src="${imgUrl}" alt="${d.name}">
+              <div>
+                <div class="title">${d.name}</div>
+                <div class="sub">${(d.party||'').toUpperCase()} ${state}${district}</div>
+                <div class="sub">Cluster ${d.cluster}</div>
+                ${badgesHtml}
+              </div>
+            </div>
+          `;
+          tip.style.display='block';
         });
-        svg.appendChild(circ);
+        circ.addEventListener('mousemove', (e)=>{
+          tip.style.left = (e.pageX + 12) + 'px';
+          tip.style.top = (e.pageY + 12) + 'px';
+        });
+        circ.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+        content.appendChild(circ);
       });
+      // apply existing zoom/pan after re-render
+      updateTransform();
 
       // legend
       const legend = document.getElementById('legend');
@@ -145,11 +206,162 @@
       }
     }
 
+    async function loadPolicyAreas(){
+      const exclude = document.getElementById('excludeProcedural').checked;
+      const res = await fetch(`/api/policy-areas?congress=119&chamber=house&exclude_procedural=${exclude}&min_votes=5`);
+      if(!res.ok) return;
+      const data = await res.json();
+      const sel = document.getElementById('policyArea');
+      sel.innerHTML = '<option value="">All policy areas</option>';
+      (data.items || []).forEach(pa => {
+        const opt = document.createElement('option');
+        opt.value = pa.name; opt.textContent = `${pa.name} (${pa.count})`;
+        sel.appendChild(opt);
+      });
+    }
+
+    async function loadSubjectTerms(){
+      const exclude = document.getElementById('excludeProcedural').checked;
+      const res = await fetch(`/api/subject-terms?congress=119&chamber=house&exclude_procedural=${exclude}&min_votes=5`);
+      if(!res.ok) return;
+      const data = await res.json();
+      const sel = document.getElementById('subjectTerm');
+      sel.innerHTML = '<option value="">All subject terms</option>';
+      (data.items || []).forEach(term => {
+        const opt = document.createElement('option');
+        opt.value = term.name; opt.textContent = `${term.name} (${term.count})`;
+        sel.appendChild(opt);
+      });
+    }
+
+    function toggleSubjectInputs(){
+      const scope = document.getElementById('scope').value;
+      const subj = document.getElementById('subject');
+      const subjSel = document.getElementById('subjectTerm');
+      const pa = document.getElementById('policyArea');
+      if(scope === 'policy_area'){
+        subj.style.display = 'none'; subjSel.style.display='none';
+        pa.style.display = '';
+        loadPolicyAreas();
+      } else {
+        subj.style.display = 'none';
+        subjSel.style.display = '';
+        pa.style.display = 'none';
+        loadSubjectTerms();
+      }
+    }
+
     document.getElementById('refresh').addEventListener('click', load);
+    document.getElementById('reset').addEventListener('click', () => {
+      document.getElementById('subject').value = '';
+      document.getElementById('policyArea').value = '';
+      document.getElementById('subjectTerm').value = '';
+      document.getElementById('scope').value = 'policy_area'; toggleSubjectInputs();
+      document.getElementById('k').value = '5';
+      document.getElementById('excludeProcedural').checked = true;
+      document.getElementById('colorByParty').checked = true;
+      load();
+    });
+    document.getElementById('scope').addEventListener('change', toggleSubjectInputs);
     document.getElementById('colorByParty').addEventListener('change', load);
     document.getElementById('colorByCluster').addEventListener('change', load);
-    document.addEventListener('DOMContentLoaded', load);
+    document.addEventListener('DOMContentLoaded', () => {
+      toggleSubjectInputs();
+      load();
+      // attach zoom/pan handlers
+      const svg = document.getElementById('plot');
+      // Wheel zoom around cursor
+      svg.addEventListener('wheel', (e)=>{
+        e.preventDefault();
+        const rect = svg.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) / rect.width * VB_W;
+        const my = (e.clientY - rect.top) / rect.height * VB_H;
+        const factor = (e.deltaY < 0) ? 1.1 : 0.9;
+        const newScale = Math.max(0.3, Math.min(20, zScale * factor));
+        // keep point under cursor stationary: t' = t + (s - s') * p
+        zTx = zTx + (zScale - newScale) * mx;
+        zTy = zTy + (zScale - newScale) * my;
+        zScale = newScale;
+        updateTransform();
+      }, { passive: false });
+      // Mouse drag pan
+      svg.addEventListener('mousedown', (e)=>{
+        isPanning = true;
+        panLast.x = e.clientX; panLast.y = e.clientY;
+        svg.style.cursor = 'grabbing';
+      });
+      window.addEventListener('mousemove', (e)=>{
+        if(!isPanning) return;
+        const svgEl = document.getElementById('plot');
+        const rect = svgEl.getBoundingClientRect();
+        const dxPx = e.clientX - panLast.x;
+        const dyPx = e.clientY - panLast.y;
+        // convert pixels to viewBox units (independent of scale, we pan in world coords)
+        const dx = dxPx / rect.width * VB_W;
+        const dy = dyPx / rect.height * VB_H;
+        zTx += dx; zTy += dy;
+        panLast.x = e.clientX; panLast.y = e.clientY;
+        updateTransform();
+      });
+      window.addEventListener('mouseup', ()=>{ if(isPanning){ isPanning=false; svg.style.cursor=''; } });
+      // Double click to reset
+      svg.addEventListener('dblclick', ()=>{ zScale=1; zTx=0; zTy=0; updateTransform(); });
+
+      // Touch/trackpad pinch-zoom and pan
+      let pinchActive = false;
+      let lastPinchDist = 0;
+      function touchMidAndDist(touches){
+        const rect = svg.getBoundingClientRect();
+        const x1 = touches[0].clientX, y1 = touches[0].clientY;
+        const x2 = touches[1].clientX, y2 = touches[1].clientY;
+        const midXpx = (x1 + x2) / 2 - rect.left;
+        const midYpx = (y1 + y2) / 2 - rect.top;
+        const midX = (midXpx / rect.width) * VB_W;
+        const midY = (midYpx / rect.height) * VB_H;
+        const dx = x2 - x1, dy = y2 - y1;
+        const dist = Math.hypot(dx, dy);
+        return { midX, midY, dist };
+      }
+      svg.addEventListener('touchstart', (e)=>{
+        if (e.touches.length === 1){
+          // one-finger pan
+          isPanning = true;
+          panLast.x = e.touches[0].clientX; panLast.y = e.touches[0].clientY;
+        } else if (e.touches.length >= 2){
+          pinchActive = true;
+          const info = touchMidAndDist(e.touches);
+          lastPinchDist = info.dist;
+        }
+      }, { passive: false });
+      svg.addEventListener('touchmove', (e)=>{
+        if (pinchActive && e.touches.length >= 2){
+          e.preventDefault();
+          const info = touchMidAndDist(e.touches);
+          if (lastPinchDist > 0){
+            const factor = info.dist / lastPinchDist;
+            const newScale = Math.max(0.3, Math.min(20, zScale * factor));
+            zTx = zTx + (zScale - newScale) * info.midX;
+            zTy = zTy + (zScale - newScale) * info.midY;
+            zScale = newScale;
+            updateTransform();
+          }
+          lastPinchDist = info.dist;
+        } else if (isPanning && e.touches.length === 1){
+          e.preventDefault();
+          const rect = svg.getBoundingClientRect();
+          const dxPx = e.touches[0].clientX - panLast.x;
+          const dyPx = e.touches[0].clientY - panLast.y;
+          const dx = dxPx / rect.width * VB_W;
+          const dy = dyPx / rect.height * VB_H;
+          zTx += dx; zTy += dy;
+          panLast.x = e.touches[0].clientX; panLast.y = e.touches[0].clientY;
+          updateTransform();
+        }
+      }, { passive: false });
+      function endTouches(){ pinchActive=false; lastPinchDist=0; isPanning=false; svg.style.cursor=''; }
+      svg.addEventListener('touchend', endTouches);
+      svg.addEventListener('touchcancel', endTouches);
+    });
   </script>
 </body>
 </html>
-
