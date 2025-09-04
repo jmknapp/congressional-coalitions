@@ -257,7 +257,7 @@ async function loadRollcalls() {
         rollcalls.forEach(rollcall => {
             const date = rollcall.date ? new Date(rollcall.date).toLocaleDateString() : '';
             const row = document.createElement('tr');
-            const billLink = rollcall.bill_id ? `<a href="/bill/${rollcall.bill_id}" target="_blank" rel="noopener noreferrer">Bill</a>` : '';
+            // Removed redundant "Bill" button; bill titles are already hyperlinked in the question column.
             
             // Create question display with bill info on first line if available
             let questionDisplay = '';
@@ -282,7 +282,6 @@ async function loadRollcalls() {
                     <a class="btn btn-sm btn-outline-primary me-2" href="/vote/${rollcall.id}" target="_blank" rel="noopener noreferrer">
                         <i class="fas fa-eye"></i> View Votes
                     </a>
-                    ${billLink ? `<a class="btn btn-sm btn-outline-secondary" href="/bill/${rollcall.bill_id}" target="_blank" rel="noopener noreferrer">Bill</a>` : ''}
                 </td>
             `;
             tbody.appendChild(row);

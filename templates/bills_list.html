@@ -103,6 +103,9 @@
                             {% if bill.policy_area %}
                                 <strong>Policy Area:</strong> {{ bill.policy_area }}<br>
                             {% endif %}
+                            {% if show_conres_note and bill.bill_id and (bill.bill_id.startswith('hconres') or bill.bill_id.startswith('sconres')) %}
+                                <span class="text-muted"><i class="fas fa-info-circle me-1"></i>Concurrent Resolution, not legislation</span><br>
+                            {% endif %}
                             {% if bill.enacted_date %}
                                 <span class="badge status-badge status-enacted me-2">
                                     <i class="fas fa-check-circle me-1"></i>Enacted: {{ bill.enacted_date }}

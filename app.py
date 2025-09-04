@@ -1806,7 +1806,7 @@ def get_bills_passed_both(congress):
                        MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
-                WHERE b.congress = :congress
+                 WHERE b.congress = :congress
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -1912,7 +1912,7 @@ def get_bills_total_passed_both(congress):
                        MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
-                WHERE b.congress = :congress
+                 WHERE b.congress = :congress
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -1983,7 +1983,7 @@ def bills_passed_both_page(congress):
                        MAX(CASE WHEN a.action_code = 'PASSED_SENATE' THEN a.action_date END) as senate_pass_date
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
-                WHERE b.congress = :congress
+                 WHERE b.congress = :congress
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -2010,7 +2010,8 @@ def bills_passed_both_page(congress):
                                 title='Bills Passed Both Chambers',
                                 subtitle='Awaiting presidential action',
                                 bills=bills,
-                                congress=congress)
+                                congress=congress,
+                                show_conres_note=True)
             
     except Exception as e:
         return f"Error: {str(e)}", 500
@@ -2071,7 +2072,7 @@ def bills_total_passed_both_page(congress):
                        MAX(CASE WHEN a.action_code = 'ENACTED' THEN a.action_date END) as enacted_date
                 FROM bills b
                 JOIN actions a ON b.bill_id = a.bill_id
-                WHERE b.congress = :congress
+                 WHERE b.congress = :congress
                   AND a.action_code IN ('PASSED_HOUSE', 'PASSED_SENATE')
                 GROUP BY b.bill_id
                 HAVING house_pass_date IS NOT NULL 
@@ -2094,7 +2095,8 @@ def bills_total_passed_both_page(congress):
                                 title='All Bills Passed Both Chambers',
                                 subtitle='Enacted + Pending presidential action',
                                 bills=bills,
-                                congress=congress)
+                                congress=congress,
+                                show_conres_note=True)
             
     except Exception as e:
         return f"Error: {str(e)}", 500
@@ -2128,7 +2130,7 @@ def get_bills_status_summary(congress):
             results = session.execute(text(query), {'congress': congress}).fetchall()
             summary = [{'bill_status': result.bill_status, 'bill_count': result.bill_count} for result in results]
             
-            # Add total passed both chambers count
+            # Add total passed both chambers count (exclude H.Con.Res. by relying on adjusted PASSED_BOTH_CHAMBERS)
             total_passed_both = 0
             for item in summary:
                 if item['bill_status'] in ['ENACTED', 'PASSED_BOTH_CHAMBERS']:
@@ -2217,4 +2219,9 @@ def debug_bills_needing_updates(congress):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Allow overriding host/port via environment for local dev without touching prod defaults
+    host = os.environ.get('HOST') or os.environ.get('FLASK_RUN_HOST', '0.0.0.0')
+    port = int(os.environ.get('PORT') or os.environ.get('FLASK_RUN_PORT', 5000))
+    debug_env = os.environ.get('FLASK_DEBUG')
+    debug = True if debug_env is None else str(debug_env).lower() in ('1', 'true', 'yes')
+    app.run(debug=debug, host=host, port=port)
