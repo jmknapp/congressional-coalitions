@@ -43,8 +43,8 @@
           <option value="">All policy areas</option>
         </select>
         <select id="scope" class="form-select form-select-sm" style="width:150px">
-          <option value="policy_area" selected>Policy Area</option>
-          <option value="subject_term">Subject Term</option>
+          <option value="policy_area">Policy Area</option>
+          <option value="subject_term" selected>Subject Term</option>
         </select>
         <select id="k" class="form-select form-select-sm" style="width:120px">
           <option value="2">k=2</option>
@@ -72,7 +72,7 @@
       <div class="col-lg-9 mb-3">
         <div class="alert alert-info alert-dismissible fade show" id="mouseControlsInfo" role="alert">
           <i class="fas fa-info-circle"></i>
-          <strong>Mouse Controls:</strong> <span id="mouseControlsText">Drag to rotate 3D view • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view</span>
+          <strong>Mouse Controls:</strong> <span id="mouseControlsText">Drag to pan • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view</span>
           <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close" onclick="closeMouseControlsInfo()"></button>
         </div>
         <div class="border rounded p-2">
@@ -113,16 +113,16 @@
             <div class="mb-2">Cluster details</div>
             <div class="d-flex gap-2 align-items-center mb-2">
               <select id="clusterSelect" class="form-select form-select-sm" style="width:120px">
-                <option value="0" selected>Cluster 0</option>
-                <option value="1">Cluster 1</option>
-                <option value="2">Cluster 2</option>
-                <option value="3">Cluster 3</option>
-                <option value="4">Cluster 4</option>
-                <option value="5">Cluster 5</option>
-                <option value="6">Cluster 6</option>
-                <option value="7">Cluster 7</option>
-                <option value="8">Cluster 8</option>
-                <option value="9">Cluster 9</option>
+                <option value="0" selected>Cluster 1</option>
+                <option value="1">Cluster 2</option>
+                <option value="2">Cluster 3</option>
+                <option value="3">Cluster 4</option>
+                <option value="4">Cluster 5</option>
+                <option value="5">Cluster 6</option>
+                <option value="6">Cluster 7</option>
+                <option value="7">Cluster 8</option>
+                <option value="8">Cluster 9</option>
+                <option value="9">Cluster 10</option>
               </select>
               <button id="btnDescribeCluster" class="btn btn-sm btn-outline-secondary">Describe cluster</button>
             </div>
@@ -148,6 +148,7 @@
     let yawDeg = 35, pitchDeg = 20; // defaults; shift+drag adjusts these
     // normalized zero positions for axes from API
     let normZeros = {x0:0.5, y0:0.5, z0:0.5};
+    let svdComponents = null;
     function updateTransform(){
       const content = document.getElementById('content');
       if (content) content.setAttribute('transform', `translate(${zTx},${zTy}) scale(${zScale})`);
@@ -199,12 +200,33 @@
       }
       const data = await res.json();
       if (data.norm_zeros) normZeros = data.norm_zeros;
+      
+      // Fetch SVD components for axis labels
+      const dims = document.getElementById('svdDims').value || '2';
+      try {
+        const svdUrl = `/api/svd/components?dims=${dims}&exclude_procedural=${excludeProcedural}` +
+                      (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
+        const svdRes = await fetch(svdUrl);
+        if (svdRes.ok) {
+          const svdData = await svdRes.json();
+          svdComponents = svdData.components || [];
+        }
+      } catch (error) {
+        console.warn('Could not fetch SVD components:', error);
+        svdComponents = null;
+      }
+      
       render(data.items || []);
     }
 
     let currentItems = [];
+    
     function render(items){
       currentItems = items;
+      
+      // Update cluster dropdown based on actual clusters in data
+      updateClusterDropdown(items);
+      
       const svg = document.getElementById('plot');
       while(svg.firstChild) svg.removeChild(svg.firstChild);
       const w=800,h=600, pad=30;
@@ -236,14 +258,27 @@
         hline.setAttribute('y1', vy); hline.setAttribute('y2', vy);
         hline.setAttribute('stroke', '#aaa'); hline.setAttribute('stroke-dasharray', '4,3');
         axes0.appendChild(vline); axes0.appendChild(hline);
-        // numeric axis labels: 1 for X (vertical line), 2 for Y (horizontal line)
+        // axis labels with characterizations oriented along axes
+        const labelText1 = svdComponents && svdComponents[0] ? 
+          `1: ${generateAxisCharacterization(svdComponents[0])}` : '1';
+        const labelText2 = svdComponents && svdComponents[1] ? 
+          `2: ${generateAxisCharacterization(svdComponents[1])}` : '2';
+        
+        // X-axis label (vertical line) - positioned along the top of the axis
         const t1 = document.createElementNS('http://www.w3.org/2000/svg','text');
-        t1.setAttribute('x', vx + 6); t1.setAttribute('y', pad + 12);
-        t1.setAttribute('fill', '#888'); t1.setAttribute('font-size', '12'); t1.textContent = '1';
+        t1.setAttribute('x', vx + 8); t1.setAttribute('y', pad + 8);
+        t1.setAttribute('fill', '#888'); t1.setAttribute('font-size', '11'); 
+        t1.setAttribute('text-anchor', 'start');
+        t1.textContent = labelText1;
+        axes0.appendChild(t1);
+        
+        // Y-axis label (horizontal line) - positioned along the right side of the axis
         const t2 = document.createElementNS('http://www.w3.org/2000/svg','text');
-        t2.setAttribute('x', w - pad - 10); t2.setAttribute('y', vy - 6);
-        t2.setAttribute('fill', '#888'); t2.setAttribute('font-size', '12'); t2.textContent = '2';
-        axes0.appendChild(t1); axes0.appendChild(t2);
+        t2.setAttribute('x', w - pad - 8); t2.setAttribute('y', vy - 8);
+        t2.setAttribute('fill', '#888'); t2.setAttribute('font-size', '11'); 
+        t2.setAttribute('text-anchor', 'end');
+        t2.textContent = labelText2;
+        axes0.appendChild(t2);
       } else {
         const yaw = yawDeg * Math.PI/180, pitch = pitchDeg * Math.PI/180;
         function proj(nx, ny, nz){
@@ -269,16 +304,57 @@
         addLine(p0, px, '#a66'); // X axis
         addLine(p0, py, '#6a6'); // Y axis
         addLine(p0, pz, '#66a'); // Z axis
-        // numeric axis labels near ends
-        function addLabel(p, text, color){
-          const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-          t.setAttribute('x', p.x + 6); t.setAttribute('y', p.y - 6);
-          t.setAttribute('fill', color); t.setAttribute('font-size', '12'); t.textContent = text;
-          axes0.appendChild(t);
-        }
-        addLabel(px, '1', '#a66');
-        addLabel(py, '2', '#6a6');
-        addLabel(pz, '3', '#66a');
+        // Calculate axis direction vectors for label positioning
+        const dx = {x: px.x - p0.x, y: px.y - p0.y};
+        const dy = {x: py.x - p0.x, y: py.y - p0.y};
+        const dz = {x: pz.x - p0.x, y: pz.y - p0.y};
+        
+        // Normalize direction vectors
+        const len = (v) => Math.sqrt(v.x*v.x + v.y*v.y);
+        const normalize = (v) => {
+          const l = len(v);
+          return l > 0 ? {x: v.x/l, y: v.y/l} : {x: 0, y: 0};
+        };
+        
+        const dxn = normalize(dx);
+        const dyn = normalize(dy);
+        const dzn = normalize(dz);
+        
+        // Position labels along axis directions, offset from the axis endpoints
+        const offset = 15;
+        
+        // X-axis label
+        const labelX = svdComponents && svdComponents[0] ? 
+          `1: ${generateAxisCharacterization(svdComponents[0])}` : '1';
+        const t1 = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t1.setAttribute('x', px.x + dxn.x * offset); 
+        t1.setAttribute('y', px.y + dxn.y * offset);
+        t1.setAttribute('fill', '#a66'); t1.setAttribute('font-size', '11'); 
+        t1.setAttribute('text-anchor', 'middle');
+        t1.textContent = labelX;
+        axes0.appendChild(t1);
+        
+        // Y-axis label
+        const labelY = svdComponents && svdComponents[1] ? 
+          `2: ${generateAxisCharacterization(svdComponents[1])}` : '2';
+        const t2 = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t2.setAttribute('x', py.x + dyn.x * offset); 
+        t2.setAttribute('y', py.y + dyn.y * offset);
+        t2.setAttribute('fill', '#6a6'); t2.setAttribute('font-size', '11'); 
+        t2.setAttribute('text-anchor', 'middle');
+        t2.textContent = labelY;
+        axes0.appendChild(t2);
+        
+        // Z-axis label
+        const labelZ = svdComponents && svdComponents[2] ? 
+          `3: ${generateAxisCharacterization(svdComponents[2])}` : '3';
+        const t3 = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t3.setAttribute('x', pz.x + dzn.x * offset); 
+        t3.setAttribute('y', pz.y + dzn.y * offset);
+        t3.setAttribute('fill', '#66a'); t3.setAttribute('font-size', '11'); 
+        t3.setAttribute('text-anchor', 'middle');
+        t3.textContent = labelZ;
+        axes0.appendChild(t3);
       }
       content.appendChild(axes0);
 
@@ -421,7 +497,7 @@
       const mouseControlsText = document.getElementById('mouseControlsText');
       
       if (svdDims === 3) {
-        mouseControlsText.textContent = 'Drag to rotate 3D view • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view';
+        mouseControlsText.textContent = 'Drag to pan • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view';
       } else {
         mouseControlsText.textContent = 'Drag to pan • Mouse wheel to zoom • Double-click to reset view';
       }
@@ -443,6 +519,26 @@
       if (axisSummary) axisSummary.innerHTML = '';
       if (clusterSummary) clusterSummary.innerHTML = '';
       if (kMetrics) kMetrics.innerHTML = '';
+    }
+
+    function updateClusterDropdown(items) {
+      // Get unique cluster IDs from the data
+      const clusterIds = [...new Set(items.map(item => item.cluster))].sort((a, b) => a - b);
+      
+      const clusterSelect = document.getElementById('clusterSelect');
+      if (!clusterSelect) return;
+      
+      // Clear existing options
+      clusterSelect.innerHTML = '';
+      
+      // Add options for each cluster that exists (1-based numbering)
+      clusterIds.forEach(clusterId => {
+        const option = document.createElement('option');
+        option.value = clusterId;
+        option.textContent = `Cluster ${clusterId + 1}`; // Display as 1-based
+        if (clusterId === 0) option.selected = true; // Default to first cluster (0 internally, 1 displayed)
+        clusterSelect.appendChild(option);
+      });
     }
 
     function generateAxisCharacterization(comp) {
@@ -469,7 +565,32 @@
       if (topPA && topST) {
         // If we have both policy areas and subject terms, combine them
         const paWords = topPA.split('/')[0].split(' ')[0]; // First word of first policy area
-        const stWords = topST.split('/')[0].split(' ').slice(0, 2).join(' '); // First two words of first subject term
+        const st = topST.split('/')[0]; // First subject term
+        
+        // Use smart truncation for subject term
+        let stWords = '';
+        if (st.split(' ').length <= 3) {
+          stWords = st;
+        } else {
+          // Look for natural break points
+          const stWordsArray = st.split(' ');
+          const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
+          let breakIndex = -1;
+          
+          for (let i = 2; i < Math.min(4, stWordsArray.length); i++) {
+            if (breakWords.includes(stWordsArray[i].toLowerCase())) {
+              breakIndex = i;
+              break;
+            }
+          }
+          
+          if (breakIndex > 0) {
+            stWords = stWordsArray.slice(0, breakIndex).join(' ');
+          } else {
+            stWords = stWordsArray.slice(0, 3).join(' ');
+          }
+        }
+        
         characterization = `${paWords}/${stWords}`;
       } else if (topPA) {
         // Just use policy area
@@ -490,6 +611,80 @@
       return characterization;
     }
 
+    function generateClusterDescription(cluster) {
+      const posPA = cluster.policy_area_pos || [];
+      const negPA = cluster.policy_area_neg || [];
+      const posST = cluster.subject_term_pos || [];
+      const negST = cluster.subject_term_neg || [];
+      
+      // Get top positive policy areas and subject terms
+      const topPA = posPA.slice(0, 2).map(pa => pa.name);
+      const topST = posST.slice(0, 2).map(st => st.name);
+      
+      // Skip "Congressional Oversight" from subject terms
+      let filteredST = topST.filter(st => 
+        !st.toLowerCase().includes('congressional oversight')
+      );
+      if (filteredST.length === 0) {
+        filteredST = topST; // Fall back to original if all were filtered
+      }
+      
+      // Create a more descriptive characterization for clusters
+      let description = '';
+      
+      if (topPA.length > 0 && filteredST.length > 0) {
+        // Use the full policy area name and a clean subject term
+        const pa = topPA[0];
+        const st = filteredST[0];
+        
+        // Try to create a natural combination
+        // If subject term is short enough, use it fully
+        if (st.split(' ').length <= 4) {
+          description = `${pa} & ${st}`;
+        } else {
+          // For longer subject terms, try to find a natural break point
+          const stWords = st.split(' ');
+          let cleanST = '';
+          
+          // Look for common break points (prepositions, conjunctions)
+          const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
+          let breakIndex = -1;
+          
+          for (let i = 2; i < Math.min(4, stWords.length); i++) {
+            if (breakWords.includes(stWords[i].toLowerCase())) {
+              breakIndex = i;
+              break;
+            }
+          }
+          
+          if (breakIndex > 0) {
+            cleanST = stWords.slice(0, breakIndex).join(' ');
+          } else {
+            // Fall back to first 3 words if no natural break
+            cleanST = stWords.slice(0, 3).join(' ');
+          }
+          
+          description = `${pa} & ${cleanST}`;
+        }
+      } else if (topPA.length > 0) {
+        // Just use policy area
+        description = topPA[0];
+      } else if (filteredST.length > 0) {
+        // Just use subject term
+        description = filteredST[0];
+      } else {
+        description = 'General voting pattern';
+      }
+      
+      // Clean up the description
+      description = description
+        .replace(/[^a-zA-Z0-9\s&]/g, '') // Remove special characters except &
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+      
+      return description;
+    }
+
     document.getElementById('refresh').addEventListener('click', () => {
       clearDescriptions();
       load();
@@ -499,7 +694,7 @@
       document.getElementById('subject').value = '';
       document.getElementById('policyArea').value = '';
       document.getElementById('subjectTerm').value = '';
-      document.getElementById('scope').value = 'policy_area'; toggleSubjectInputs();
+      document.getElementById('scope').value = 'subject_term'; toggleSubjectInputs();
       document.getElementById('k').value = ''; // Clear k to trigger suggested k lookup
       document.getElementById('excludeProcedural').checked = true;
       document.getElementById('colorByParty').checked = true;
@@ -535,7 +730,7 @@
     document.getElementById('svdDims').addEventListener('change', ()=>{ 
       clearDescriptions();
       updateMouseControlsInfo();
-      render(currentItems); 
+      load(); // Reload to get new SVD components for the new dimensions
     });
     document.getElementById('k').addEventListener('change', () => {
       clearDescriptions();
@@ -627,7 +822,8 @@
         return (rows||[]).slice(0,5).map(r=>`<div class=\"mb-1\"><a href=\"/vote/${r.rollcall_id}\" target=\"_blank\">${r.rollcall_id}</a> · Δ=${r.delta} · ${r.question||''}<div class=\"text-muted\">${r.title||''}</div></div>`).join('');
       }
       pane.innerHTML = `
-        <div><strong>Cluster ${c.id}</strong> · size ${c.size} · party D ${party.D||0}, R ${party.R||0}, other ${party.other||0}</div>
+        <div><strong>Cluster ${c.id + 1}</strong> · size ${c.size} · party D ${party.D||0}, R ${party.R||0}, other ${party.other||0}</div>
+        <div class="mt-1"><em>${generateClusterDescription(c)}</em></div>
         <div class=\"mt-2\">Top states: ${states||'-'}</div>
         <div class=\"mt-2\">Caucuses: FC ${cauc.fc}, PC ${cauc.pc}, BD ${cauc.bd}, MAGA ${cauc.maga}, CBC ${cauc.cbc}, TB ${cauc.tb}</div>
         <div class=\"mt-2\"><em>Policy areas</em><br>+ ${listKV(c.policy_area_pos)}<br>- ${listKV(c.policy_area_neg)}</div>

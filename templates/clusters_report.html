@@ -281,7 +281,32 @@
       if (topPA && topST) {
         // If we have both policy areas and subject terms, combine them
         const paWords = topPA.split('/')[0].split(' ')[0]; // First word of first policy area
-        const stWords = topST.split('/')[0].split(' ').slice(0, 2).join(' '); // First two words of first subject term
+        const st = topST.split('/')[0]; // First subject term
+        
+        // Use smart truncation for subject term
+        let stWords = '';
+        if (st.split(' ').length <= 3) {
+          stWords = st;
+        } else {
+          // Look for natural break points
+          const stWordsArray = st.split(' ');
+          const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
+          let breakIndex = -1;
+          
+          for (let i = 2; i < Math.min(4, stWordsArray.length); i++) {
+            if (breakWords.includes(stWordsArray[i].toLowerCase())) {
+              breakIndex = i;
+              break;
+            }
+          }
+          
+          if (breakIndex > 0) {
+            stWords = stWordsArray.slice(0, breakIndex).join(' ');
+          } else {
+            stWords = stWordsArray.slice(0, 3).join(' ');
+          }
+        }
+        
         characterization = `${paWords}/${stWords}`;
       } else if (topPA) {
         // Just use policy area
@@ -300,6 +325,80 @@
         .trim();
       
       return characterization;
+    }
+
+    function generateClusterDescription(cluster) {
+      const posPA = cluster.policy_area_pos || [];
+      const negPA = cluster.policy_area_neg || [];
+      const posST = cluster.subject_term_pos || [];
+      const negST = cluster.subject_term_neg || [];
+      
+      // Get top positive policy areas and subject terms
+      const topPA = posPA.slice(0, 2).map(pa => pa.name);
+      const topST = posST.slice(0, 2).map(st => st.name);
+      
+      // Skip "Congressional Oversight" from subject terms
+      let filteredST = topST.filter(st => 
+        !st.toLowerCase().includes('congressional oversight')
+      );
+      if (filteredST.length === 0) {
+        filteredST = topST; // Fall back to original if all were filtered
+      }
+      
+      // Create a more descriptive characterization for clusters
+      let description = '';
+      
+      if (topPA.length > 0 && filteredST.length > 0) {
+        // Use the full policy area name and a clean subject term
+        const pa = topPA[0];
+        const st = filteredST[0];
+        
+        // Try to create a natural combination
+        // If subject term is short enough, use it fully
+        if (st.split(' ').length <= 4) {
+          description = `${pa} & ${st}`;
+        } else {
+          // For longer subject terms, try to find a natural break point
+          const stWords = st.split(' ');
+          let cleanST = '';
+          
+          // Look for common break points (prepositions, conjunctions)
+          const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
+          let breakIndex = -1;
+          
+          for (let i = 2; i < Math.min(4, stWords.length); i++) {
+            if (breakWords.includes(stWords[i].toLowerCase())) {
+              breakIndex = i;
+              break;
+            }
+          }
+          
+          if (breakIndex > 0) {
+            cleanST = stWords.slice(0, breakIndex).join(' ');
+          } else {
+            // Fall back to first 3 words if no natural break
+            cleanST = stWords.slice(0, 3).join(' ');
+          }
+          
+          description = `${pa} & ${cleanST}`;
+        }
+      } else if (topPA.length > 0) {
+        // Just use policy area
+        description = topPA[0];
+      } else if (filteredST.length > 0) {
+        // Just use subject term
+        description = filteredST[0];
+      } else {
+        description = 'General voting pattern';
+      }
+      
+      // Clean up the description
+      description = description
+        .replace(/[^a-zA-Z0-9\s&]/g, '') // Remove special characters except &
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+      
+      return description;
     }
 
     function renderSVDAnalysis(data) {
@@ -407,7 +506,8 @@
         html += `
           <div class="cluster-card">
             <div class="cluster-header">
-              <h4>Cluster ${cluster.id} <span class="badge bg-primary">${cluster.size} members</span></h4>
+              <h4>Cluster ${cluster.id + 1} <span class="badge bg-primary">${cluster.size} members</span></h4>
+              <p class="text-muted mb-0"><em>${generateClusterDescription(cluster)}</em></p>
             </div>
             <div class="cluster-body">
               <div class="row">
@@ -458,6 +558,7 @@
     function renderMemberDetails(data) {
       const clusterData = data.cluster_data;
       const items = clusterData.items || [];
+      const clusters = data.cluster_summaries || [];
       
       if (items.length === 0) {
         document.getElementById('memberDetails').innerHTML = '<p class="text-muted">Member details not available.</p>';
@@ -476,26 +577,69 @@
       let html = '';
       Object.keys(membersByCluster).sort((a, b) => parseInt(a) - parseInt(b)).forEach(clusterId => {
         const members = membersByCluster[clusterId];
+        const clusterNum = parseInt(clusterId) + 1; // Convert to number first, then add 1
+        
+        // Group members by party
+        const membersByParty = {
+          'D': members.filter(m => m.party === 'D'),
+          'R': members.filter(m => m.party === 'R'),
+          'Other': members.filter(m => m.party !== 'D' && m.party !== 'R')
+        };
+        
         html += `
           <div class="cluster-card">
             <div class="cluster-header">
-              <h5>Cluster ${clusterId} Members (${members.length})</h5>
+              <h5>Cluster ${clusterNum} Members (${members.length})</h5>
+              <p class="text-muted mb-2"><em>${(() => {
+                const cluster = clusters.find(c => c.id === parseInt(clusterId));
+                return cluster ? generateClusterDescription(cluster) : 'General voting pattern';
+              })()}</em></p>
             </div>
             <div class="cluster-body">
-              <div class="row">
-                ${members.map(member => `
-                  <div class="col-md-4 col-lg-3 mb-2">
-                    <div class="d-flex align-items-center">
-                      <img src="/api/member-image/${member.id}" alt="${member.name}" 
-                           style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px;">
-                      <div>
-                        <div class="fw-bold">${member.name}</div>
-                        <small class="text-muted">${member.party} ${member.state}${member.district ? '-' + member.district : ''}</small>
+              ${Object.entries(membersByParty).filter(([party, partyMembers]) => partyMembers.length > 0).map(([party, partyMembers]) => `
+                <div class="mb-4">
+                  <h6 class="text-primary mb-3">
+                    ${party === 'D' ? 'Democratic' : party === 'R' ? 'Republican' : 'Other'} (${partyMembers.length})
+                  </h6>
+                  <div class="row">
+                    ${partyMembers.map((member, index) => `
+                      <div class="col-md-3 col-lg-3 mb-3">
+                        <div class="d-flex align-items-center p-2">
+                          <a href="/member/${member.id}" target="_blank" style="text-decoration: none;">
+                            <img src="/api/member-image/${member.id}" alt="${member.name}" 
+                                 style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px; cursor: pointer;">
+                          </a>
+                          <div style="flex: 1;">
+                            <div class="fw-bold">${member.name}</div>
+                            <small class="text-muted">${member.party} ${member.state}${member.district ? '-' + member.district : ''}</small>
+                            <div class="mt-1">
+                              ${member.badges ? Object.entries(member.badges)
+                                .filter(([badge, isMember]) => isMember)
+                                .map(([badge, isMember]) => {
+                                  const badgeConfig = {
+                                    'fc': { name: 'FC', class: 'fc-pink-badge', icon: 'fas fa-scale-unbalanced', link: '/caucus/1' },
+                                    'pc': { name: 'PC', class: 'bg-info text-white', icon: 'fas fa-arrow-trend-up', link: '/caucus/2' },
+                                    'bd': { name: 'BD', class: 'bg-info text-white', icon: 'fas fa-dog', link: '/caucus/3' },
+                                    'maga': { name: 'MAGA', class: 'bg-danger text-white', icon: 'fas fa-biohazard', link: '/caucus/5' },
+                                    'cbc': { name: 'CBC', class: 'text-white', style: 'background-color: #1a237e;', icon: 'fas fa-users', link: '/caucus/4' },
+                                    'tb': { name: 'TB', class: 'bg-primary text-white', icon: 'fas fa-heart', link: '/caucus/6' }
+                                  };
+                                  const config = badgeConfig[badge];
+                                  if (config) {
+                                    const styleAttr = config.style ? ` style="${config.style}"` : '';
+                                    return `<a href="${config.link}" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge ${config.class} me-1 mb-1"${styleAttr} data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view ${config.name} information"><i class="${config.icon} me-1"></i>${config.name}</span></a>`;
+                                  }
+                                  return `<span class="badge bg-secondary me-1 mb-1" style="font-size: 0.7em;">${badge.toUpperCase()}</span>`;
+                                }).join('') : ''}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                      ${(index + 1) % 4 === 0 && index < partyMembers.length - 1 ? '<div class="col-12"><hr class="my-3 d-none d-md-block"></div>' : ''}
+                    `).join('')}
                   </div>
-                `).join('')}
-              </div>
+                </div>
+              `).join('')}
             </div>
           </div>
         `;
