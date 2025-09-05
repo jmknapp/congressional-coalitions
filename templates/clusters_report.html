@@ -257,6 +257,51 @@
       document.getElementById('analysisParameters').innerHTML = html;
     }
 
+    function generateAxisCharacterization(comp) {
+      const posPA = comp.policy_area_pos || [];
+      const negPA = comp.policy_area_neg || [];
+      const posST = comp.subject_term_pos || [];
+      const negST = comp.subject_term_neg || [];
+      
+      // Get top positive policy areas and subject terms
+      const topPA = posPA.slice(0, 2).map(pa => pa.name).join('/');
+      
+      // Skip "Congressional Oversight" and use next subject term
+      let filteredST = posST.filter(st => 
+        !st.name.toLowerCase().includes('congressional oversight')
+      );
+      if (filteredST.length === 0) {
+        filteredST = posST; // Fall back to original if all were filtered
+      }
+      const topST = filteredST.slice(0, 2).map(st => st.name).join('/');
+      
+      // Create characterization based on highest scoring items
+      let characterization = '';
+      
+      if (topPA && topST) {
+        // If we have both policy areas and subject terms, combine them
+        const paWords = topPA.split('/')[0].split(' ')[0]; // First word of first policy area
+        const stWords = topST.split('/')[0].split(' ').slice(0, 2).join(' '); // First two words of first subject term
+        characterization = `${paWords}/${stWords}`;
+      } else if (topPA) {
+        // Just use policy area
+        characterization = topPA.split('/')[0];
+      } else if (topST) {
+        // Just use subject term
+        characterization = topST.split('/')[0];
+      } else {
+        characterization = 'General';
+      }
+      
+      // Clean up the characterization
+      characterization = characterization
+        .replace(/[^a-zA-Z0-9\s\/]/g, '') // Remove special characters
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+      
+      return characterization;
+    }
+
     function renderSVDAnalysis(data) {
       const components = data.svd_components;
       if (!components || components.length === 0) {
@@ -266,9 +311,10 @@
 
       let html = '';
       components.forEach((comp, index) => {
+        const characterization = generateAxisCharacterization(comp);
         html += `
           <div class="axis-description">
-            <h4>Axis ${index + 1}</h4>
+            <h4>Axis ${index + 1} <span class="badge bg-primary">${characterization}</span></h4>
             <div class="row">
               <div class="col-md-6">
                 <h6>Top Positive Roll Calls</h6>
