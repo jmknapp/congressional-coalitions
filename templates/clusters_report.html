@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Congressional Voting Pattern Analysis Report</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <style>
+    .report-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem 0; margin-bottom: 2rem; }
+    .metric-card { border-left: 4px solid #007bff; }
+    .cluster-card { border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 1.5rem; }
+    .cluster-header { background: #f8f9fa; padding: 1rem; border-bottom: 1px solid #dee2e6; }
+    .cluster-body { padding: 1.5rem; }
+    .axis-description { background: #e3f2fd; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    .rollcall-item { border-left: 3px solid #28a745; padding-left: 1rem; margin-bottom: 0.5rem; }
+    .rollcall-item.negative { border-left-color: #dc3545; }
+    .member-badge { display: inline-block; padding: 0.25rem 0.5rem; margin: 0.1rem; border-radius: 4px; font-size: 0.8rem; }
+    .badge-dem { background: #2b6cb0; color: white; }
+    .badge-rep { background: #c53030; color: white; }
+    .badge-other { background: #718096; color: white; }
+    .caucus-badge { background: #6c757d; color: white; }
+    .print-only { display: none; }
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      .report-header { background: #f8f9fa !important; color: black !important; }
+      .cluster-card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="report-header">
+    <div class="container">
+      <div class="row align-items-center">
+        <div class="col">
+          <h1 class="mb-0"><i class="bi bi-bank"></i> Congressional Voting Pattern Analysis Report</h1>
+          <p class="mb-0 mt-2">119th Congress • House of Representatives</p>
+        </div>
+        <div class="col-auto no-print">
+          <button class="btn btn-light" onclick="window.print()">
+            <i class="fas fa-print"></i> Print Report
+          </button>
+          <button class="btn btn-outline-light ms-2" onclick="window.close()">
+            <i class="fas fa-times"></i> Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- Loading State -->
+    <div id="loadingState" class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-3">Generating comprehensive report...</p>
+    </div>
+
+    <!-- Report Content -->
+    <div id="reportContent" style="display: none;">
+      <!-- Executive Summary -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-chart-line"></i> Executive Summary</h2>
+          <div class="row" id="executiveSummary">
+            <!-- Populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Analysis Parameters -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-cog"></i> Analysis Parameters</h2>
+          <div class="card">
+            <div class="card-body">
+              <div class="row" id="analysisParameters">
+                <!-- Populated by JavaScript -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SVD Analysis -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-project-diagram"></i> Support Vector Decomposition (SVD) Analysis</h2>
+          <div id="svdAnalysis">
+            <!-- Populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Clustering Metrics -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-chart-bar"></i> Clustering Quality Metrics</h2>
+          <div id="clusteringMetrics">
+            <!-- Populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Cluster Analysis -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-users"></i> Cluster Analysis</h2>
+          <div id="clusterAnalysis">
+            <!-- Populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Member Details -->
+      <div class="row mb-4">
+        <div class="col-12">
+          <h2><i class="fas fa-list"></i> Cluster Membership Details</h2>
+          <div id="memberDetails">
+            <!-- Populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="row">
+        <div class="col-12">
+          <hr>
+          <div class="text-center text-muted">
+            <p>Report generated on <span id="generatedAt"></span></p>
+            <p class="small">Congressional Coalition Analysis Tool • 119th Congress Data</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" style="display: none;" class="alert alert-danger">
+      <h4><i class="fas fa-exclamation-triangle"></i> Error Loading Report</h4>
+      <p id="errorMessage"></p>
+    </div>
+  </div>
+
+  <script>
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    async function loadReport() {
+      try {
+        const response = await fetch(`/api/clusters/report?${urlParams.toString()}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+        
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        renderReport(data);
+        
+      } catch (error) {
+        console.error('Error loading report:', error);
+        document.getElementById('loadingState').style.display = 'none';
+        document.getElementById('errorState').style.display = 'block';
+        document.getElementById('errorMessage').textContent = error.message;
+      }
+    }
+
+    function renderReport(data) {
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('reportContent').style.display = 'block';
+      
+      // Set generation timestamp
+      const generatedAt = new Date(data.generated_at).toLocaleString();
+      document.getElementById('generatedAt').textContent = generatedAt;
+      
+      renderExecutiveSummary(data);
+      renderAnalysisParameters(data);
+      renderSVDAnalysis(data);
+      renderClusteringMetrics(data);
+      renderClusterAnalysis(data);
+      renderMemberDetails(data);
+    }
+
+    function renderExecutiveSummary(data) {
+      const clusterData = data.cluster_data;
+      const summary = data.cluster_summaries;
+      
+      const totalMembers = clusterData.count || 0;
+      const numClusters = data.parameters.k;
+      const excludeProcedural = data.parameters.exclude_procedural;
+      
+      const html = `
+        <div class="col-md-3">
+          <div class="card metric-card">
+            <div class="card-body text-center">
+              <h3 class="text-primary">${totalMembers}</h3>
+              <p class="mb-0">Total Members</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card metric-card">
+            <div class="card-body text-center">
+              <h3 class="text-success">${numClusters}</h3>
+              <p class="mb-0">Clusters Identified</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card metric-card">
+            <div class="card-body text-center">
+              <h3 class="text-info">${data.parameters.svd_dims}D</h3>
+              <p class="mb-0">SVD Dimensions</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card metric-card">
+            <div class="card-body text-center">
+              <h3 class="text-warning">${excludeProcedural ? 'Yes' : 'No'}</h3>
+              <p class="mb-0">Exclude Procedural</p>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('executiveSummary').innerHTML = html;
+    }
+
+    function renderAnalysisParameters(data) {
+      const params = data.parameters;
+      const html = `
+        <div class="col-md-6">
+          <h5>Analysis Settings</h5>
+          <ul class="list-unstyled">
+            <li><strong>Number of Clusters (k):</strong> ${params.k}</li>
+            <li><strong>SVD Dimensions:</strong> ${params.svd_dims}</li>
+            <li><strong>Exclude Procedural Votes:</strong> ${params.exclude_procedural ? 'Yes' : 'No'}</li>
+            <li><strong>Congress:</strong> 119th</li>
+            <li><strong>Chamber:</strong> House of Representatives</li>
+          </ul>
+        </div>
+        <div class="col-md-6">
+          <h5>Filtering</h5>
+          <ul class="list-unstyled">
+            <li><strong>Scope:</strong> ${params.scope || 'All votes'}</li>
+            <li><strong>Subject Filter:</strong> ${params.subjects.length > 0 ? params.subjects.join(', ') : 'None'}</li>
+          </ul>
+        </div>
+      `;
+      
+      document.getElementById('analysisParameters').innerHTML = html;
+    }
+
+    function renderSVDAnalysis(data) {
+      const components = data.svd_components;
+      if (!components || components.length === 0) {
+        document.getElementById('svdAnalysis').innerHTML = '<p class="text-muted">SVD component data not available.</p>';
+        return;
+      }
+
+      let html = '';
+      components.forEach((comp, index) => {
+        html += `
+          <div class="axis-description">
+            <h4>Axis ${index + 1}</h4>
+            <div class="row">
+              <div class="col-md-6">
+                <h6>Top Positive Roll Calls</h6>
+                <ul class="list-unstyled">
+                  ${comp.top_rollcalls_pos?.slice(0, 3).map(rc => `
+                    <li class="rollcall-item">
+                      <strong><a href="/vote/${rc.rollcall_id}" target="_blank">${rc.rollcall_id}</a></strong>
+                      <br><small>${rc.question || 'No question'}</small>
+                      <br><small class="text-muted">Weight: ${rc.weight?.toFixed(3) || 'N/A'}</small>
+                    </li>
+                  `).join('') || '<li class="text-muted">No data available</li>'}
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h6>Top Negative Roll Calls</h6>
+                <ul class="list-unstyled">
+                  ${comp.top_rollcalls_neg?.slice(0, 3).map(rc => `
+                    <li class="rollcall-item negative">
+                      <strong><a href="/vote/${rc.rollcall_id}" target="_blank">${rc.rollcall_id}</a></strong>
+                      <br><small>${rc.question || 'No question'}</small>
+                      <br><small class="text-muted">Weight: ${rc.weight?.toFixed(3) || 'N/A'}</small>
+                    </li>
+                  `).join('') || '<li class="text-muted">No data available</li>'}
+                </ul>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      document.getElementById('svdAnalysis').innerHTML = html;
+    }
+
+    function renderClusteringMetrics(data) {
+      const autoK = data.auto_k_suggestion;
+      if (!autoK || !autoK.metrics) {
+        document.getElementById('clusteringMetrics').innerHTML = '<p class="text-muted">Clustering metrics not available.</p>';
+        return;
+      }
+
+      const sortedMetrics = autoK.metrics.slice().sort((a, b) => b.silhouette - a.silhouette);
+      const topMetrics = sortedMetrics.slice(0, 5);
+
+      const html = `
+        <div class="card">
+          <div class="card-body">
+            <h5>Optimal K Analysis</h5>
+            <p><strong>Suggested k:</strong> ${autoK.suggested_k || 'N/A'}</p>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>k</th>
+                    <th>Silhouette Score</th>
+                    <th>Calinski-Harabasz</th>
+                    <th>Davies-Bouldin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${topMetrics.map(m => `
+                    <tr ${m.k === autoK.suggested_k ? 'class="table-success"' : ''}>
+                      <td>${m.k}</td>
+                      <td>${m.silhouette?.toFixed(3) || 'N/A'}</td>
+                      <td>${Math.round(m.calinski_harabasz) || 'N/A'}</td>
+                      <td>${m.davies_bouldin?.toFixed(3) || 'N/A'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('clusteringMetrics').innerHTML = html;
+    }
+
+    function renderClusterAnalysis(data) {
+      const clusters = data.cluster_summaries;
+      if (!clusters || clusters.length === 0) {
+        document.getElementById('clusterAnalysis').innerHTML = '<p class="text-muted">Cluster analysis data not available.</p>';
+        return;
+      }
+
+      let html = '';
+      clusters.forEach(cluster => {
+        const party = cluster.party || {};
+        const caucuses = cluster.caucuses || {};
+        
+        html += `
+          <div class="cluster-card">
+            <div class="cluster-header">
+              <h4>Cluster ${cluster.id} <span class="badge bg-primary">${cluster.size} members</span></h4>
+            </div>
+            <div class="cluster-body">
+              <div class="row">
+                <div class="col-md-6">
+                  <h6>Party Composition</h6>
+                  <p>
+                    <span class="member-badge badge-dem">D: ${party.D || 0}</span>
+                    <span class="member-badge badge-rep">R: ${party.R || 0}</span>
+                    <span class="member-badge badge-other">Other: ${party.other || 0}</span>
+                  </p>
+                  
+                  <h6>Caucus Membership</h6>
+                  <p>
+                    ${caucuses.fc > 0 ? `<span class="member-badge caucus-badge">FC: ${caucuses.fc}</span>` : ''}
+                    ${caucuses.pc > 0 ? `<span class="member-badge caucus-badge">PC: ${caucuses.pc}</span>` : ''}
+                    ${caucuses.bd > 0 ? `<span class="member-badge caucus-badge">BD: ${caucuses.bd}</span>` : ''}
+                    ${caucuses.maga > 0 ? `<span class="member-badge caucus-badge">MAGA: ${caucuses.maga}</span>` : ''}
+                    ${caucuses.cbc > 0 ? `<span class="member-badge caucus-badge">CBC: ${caucuses.cbc}</span>` : ''}
+                    ${caucuses.tb > 0 ? `<span class="member-badge caucus-badge">TB: ${caucuses.tb}</span>` : ''}
+                  </p>
+                  
+                  <h6>Top States</h6>
+                  <p>${cluster.top_states?.slice(0, 5).map(s => `${s.state} (${s.count})`).join(', ') || 'N/A'}</p>
+                </div>
+                <div class="col-md-6">
+                  <h6>Policy Area Preferences</h6>
+                  <p><strong>Positive:</strong> ${cluster.policy_area_pos?.slice(0, 3).map(pa => `${pa.name} (${pa.score})`).join(', ') || 'N/A'}</p>
+                  <p><strong>Negative:</strong> ${cluster.policy_area_neg?.slice(0, 3).map(pa => `${pa.name} (${pa.score})`).join(', ') || 'N/A'}</p>
+                  
+                  <h6>Subject Term Preferences</h6>
+                  <p><strong>Positive:</strong> ${cluster.subject_term_pos?.slice(0, 3).map(st => `${st.name} (${st.score})`).join(', ') || 'N/A'}</p>
+                  <p><strong>Negative:</strong> ${cluster.subject_term_neg?.slice(0, 3).map(st => `${st.name} (${st.score})`).join(', ') || 'N/A'}</p>
+                </div>
+              </div>
+              
+              <div class="mt-3">
+                <h6>Exemplar Members</h6>
+                <p>${cluster.exemplars?.map(m => `${m.name} (${m.party})`).join(', ') || 'N/A'}</p>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      document.getElementById('clusterAnalysis').innerHTML = html;
+    }
+
+    function renderMemberDetails(data) {
+      const clusterData = data.cluster_data;
+      const items = clusterData.items || [];
+      
+      if (items.length === 0) {
+        document.getElementById('memberDetails').innerHTML = '<p class="text-muted">Member details not available.</p>';
+        return;
+      }
+
+      // Group members by cluster
+      const membersByCluster = {};
+      items.forEach(member => {
+        if (!membersByCluster[member.cluster]) {
+          membersByCluster[member.cluster] = [];
+        }
+        membersByCluster[member.cluster].push(member);
+      });
+
+      let html = '';
+      Object.keys(membersByCluster).sort((a, b) => parseInt(a) - parseInt(b)).forEach(clusterId => {
+        const members = membersByCluster[clusterId];
+        html += `
+          <div class="cluster-card">
+            <div class="cluster-header">
+              <h5>Cluster ${clusterId} Members (${members.length})</h5>
+            </div>
+            <div class="cluster-body">
+              <div class="row">
+                ${members.map(member => `
+                  <div class="col-md-4 col-lg-3 mb-2">
+                    <div class="d-flex align-items-center">
+                      <img src="/api/member-image/${member.id}" alt="${member.name}" 
+                           style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px;">
+                      <div>
+                        <div class="fw-bold">${member.name}</div>
+                        <small class="text-muted">${member.party} ${member.state}${member.district ? '-' + member.district : ''}</small>
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      document.getElementById('memberDetails').innerHTML = html;
+    }
+
+    // Load report when page loads
+    document.addEventListener('DOMContentLoaded', loadReport);
+  </script>
+</body>
+</html>

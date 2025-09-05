@@ -2492,6 +2492,76 @@ def clusters_page():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+@app.route('/clusters/report')
+def clusters_report_page():
+    """Comprehensive report page for cluster analysis."""
+    try:
+        return render_template('clusters_report.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/api/clusters/report')
+def api_clusters_report():
+    """Generate comprehensive report data for cluster analysis.
+    
+    Returns combined data from clusters, SVD components, and cluster summaries.
+    """
+    try:
+        # Get parameters
+        k = int(request.args.get('k', 5))
+        exclude_procedural = _is_truthy(request.args.get('exclude_procedural', 'true'))
+        scope = request.args.get('scope')
+        subject_param = request.args.get('subject')
+        subjects = [s.strip() for s in subject_param.split(',')] if subject_param else []
+        svd_dims = int(request.args.get('svd_dims', 2))
+        
+        # Get cluster data
+        cluster_params = f'k={k}&exclude_procedural={exclude_procedural}'
+        if subjects and scope:
+            cluster_params += f'&scope={scope}&subject={",".join(subjects)}'
+        
+        cluster_resp = requests.get(f'http://localhost:5001/api/clusters?{cluster_params}')
+        if cluster_resp.status_code != 200:
+            return jsonify({'error': 'Failed to get cluster data'}), 500
+        cluster_data = cluster_resp.json()
+        
+        # Get SVD components
+        svd_params = f'dims={svd_dims}&exclude_procedural={exclude_procedural}'
+        if subjects and scope:
+            svd_params += f'&scope={scope}&subject={",".join(subjects)}'
+        
+        svd_resp = requests.get(f'http://localhost:5001/api/svd/components?{svd_params}')
+        svd_data = svd_resp.json() if svd_resp.status_code == 200 else {'components': []}
+        
+        # Get cluster summary
+        summary_resp = requests.get(f'http://localhost:5001/api/clusters/summary?{cluster_params}')
+        summary_data = summary_resp.json() if summary_resp.status_code == 200 else {'clusters': []}
+        
+        # Get auto-k suggestion
+        auto_k_resp = requests.get(f'http://localhost:5001/api/clusters/auto-k?{cluster_params}')
+        auto_k_data = auto_k_resp.json() if auto_k_resp.status_code == 200 else {}
+        
+        # Combine all data
+        report_data = {
+            'parameters': {
+                'k': k,
+                'exclude_procedural': exclude_procedural,
+                'scope': scope,
+                'subjects': subjects,
+                'svd_dims': svd_dims
+            },
+            'cluster_data': cluster_data,
+            'svd_components': svd_data.get('components', []),
+            'cluster_summaries': summary_data.get('clusters', []),
+            'auto_k_suggestion': auto_k_data,
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        return jsonify(report_data)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/clusters/auto-k')
 def api_clusters_auto_k():
     """Suggest an optimal k based on clustering metrics (silhouette/CH/DB).
@@ -2739,6 +2809,16 @@ def api_clusters_summary():
                 'state': m.state
             } for m in mem_rows}
 
+            # Preload subject terms for these bills
+            bill_ids_for_subjects = [m['bill_id'] for m in rc_meta.values() if m.get('bill_id')]
+            subj_map = {}
+            if bill_ids_for_subjects:
+                subj_rows = session.query(BillSubject.bill_id, BillSubject.subject_term) \
+                                  .filter(BillSubject.bill_id.in_(bill_ids_for_subjects)).all()
+                for b_id, term in subj_rows:
+                    if term:
+                        subj_map.setdefault(b_id, []).append(term)
+
         # Build matrix
         rc_index = {rc_id: i for i, rc_id in enumerate(rc_ids_all)}
         member_ids = sorted({row.member_id_bioguide for row in votes_rows if row.member_id_bioguide in mem_meta})
@@ -2780,7 +2860,10 @@ def api_clusters_summary():
         Z = svd.fit_transform(M_centered)
 
         # Cluster
-        k = max(2, min(k, Z.shape[0]-1))
+        n_samples = Z.shape[0]
+        if n_samples < 2:
+            return jsonify({'error': 'Not enough members to cluster', 'detail': {'n_samples': int(n_samples)}}), 400
+        k = max(2, min(k, n_samples))
         km = KMeans(n_clusters=k, n_init=10, random_state=42)
         labels = km.fit_predict(Z)
 

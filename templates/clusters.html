@@ -31,8 +31,8 @@
       <h3>Vote Pattern Clusters</h3>
       <div class="d-flex gap-2">
         <select id="svdDims" class="form-select form-select-sm" style="width:120px">
-          <option value="2" selected>SVD(2)</option>
-          <option value="3">SVD(3)</option>
+          <option value="2">SVD(2)</option>
+          <option value="3" selected>SVD(3)</option>
         </select>
         <input id="subject" class="form-control form-control-sm" style="width:220px; display:none" placeholder="Subject term(s); comma-separated"/>
         <select id="subjectTerm" class="form-select form-select-sm" style="width:220px; display:none">
@@ -49,7 +49,7 @@
           <option value="2">k=2</option>
           <option value="3">k=3</option>
           <option value="4">k=4</option>
-          <option value="5" selected>k=5</option>
+          <option value="5">k=5</option>
           <option value="6">k=6</option>
           <option value="7">k=7</option>
           <option value="8">k=8</option>
@@ -63,11 +63,17 @@
         </div>
         <button id="refresh" class="btn btn-sm btn-primary">Refresh</button>
         <button id="reset" class="btn btn-sm btn-outline-secondary">Reset</button>
+        <button id="generateReport" class="btn btn-sm btn-success">Generate Report</button>
       </div>
     </div>
 
     <div class="row">
       <div class="col-lg-9 mb-3">
+        <div class="alert alert-info alert-dismissible fade show" id="mouseControlsInfo" role="alert">
+          <i class="fas fa-info-circle"></i>
+          <strong>Mouse Controls:</strong> <span id="mouseControlsText">Drag to rotate 3D view • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view</span>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
         <div class="border rounded p-2">
           <svg id="plot" viewBox="0 0 800 600" style="width:100%;height:auto"></svg>
         </div>
@@ -153,8 +159,33 @@
       return palette[idx % palette.length];
     }
 
-    async function load() {
-      const k = document.getElementById('k').value;
+    async function load(useSuggestedK = false) {
+      let k = document.getElementById('k').value;
+      
+      // If this is the initial load and no k is selected, get the suggested k
+      if (useSuggestedK && !document.getElementById('k').value) {
+        const excludeProcedural = document.getElementById('excludeProcedural').checked;
+        const scope = document.getElementById('scope').value;
+        const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+        
+        try {
+          const autoKUrl = `/api/clusters/auto-k?exclude_procedural=${excludeProcedural}` +
+                          (subject ? `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}` : '');
+          const autoKRes = await fetch(autoKUrl);
+          if (autoKRes.ok) {
+            const autoKData = await autoKRes.json();
+            if (autoKData.suggested_k) {
+              k = autoKData.suggested_k;
+              document.getElementById('k').value = k;
+            }
+          }
+        } catch (error) {
+          console.warn('Could not get suggested k, using default k=5:', error);
+          k = '5';
+          document.getElementById('k').value = k;
+        }
+      }
+      
       const excludeProcedural = document.getElementById('excludeProcedural').checked;
       const scope = document.getElementById('scope').value;
       const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
@@ -205,6 +236,14 @@
         hline.setAttribute('y1', vy); hline.setAttribute('y2', vy);
         hline.setAttribute('stroke', '#aaa'); hline.setAttribute('stroke-dasharray', '4,3');
         axes0.appendChild(vline); axes0.appendChild(hline);
+        // numeric axis labels: 1 for X (vertical line), 2 for Y (horizontal line)
+        const t1 = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t1.setAttribute('x', vx + 6); t1.setAttribute('y', pad + 12);
+        t1.setAttribute('fill', '#888'); t1.setAttribute('font-size', '12'); t1.textContent = '1';
+        const t2 = document.createElementNS('http://www.w3.org/2000/svg','text');
+        t2.setAttribute('x', w - pad - 10); t2.setAttribute('y', vy - 6);
+        t2.setAttribute('fill', '#888'); t2.setAttribute('font-size', '12'); t2.textContent = '2';
+        axes0.appendChild(t1); axes0.appendChild(t2);
       } else {
         const yaw = yawDeg * Math.PI/180, pitch = pitchDeg * Math.PI/180;
         function proj(nx, ny, nz){
@@ -230,6 +269,16 @@
         addLine(p0, px, '#a66'); // X axis
         addLine(p0, py, '#6a6'); // Y axis
         addLine(p0, pz, '#66a'); // Z axis
+        // numeric axis labels near ends
+        function addLabel(p, text, color){
+          const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+          t.setAttribute('x', p.x + 6); t.setAttribute('y', p.y - 6);
+          t.setAttribute('fill', color); t.setAttribute('font-size', '12'); t.textContent = text;
+          axes0.appendChild(t);
+        }
+        addLabel(px, '1', '#a66');
+        addLabel(py, '2', '#6a6');
+        addLabel(pz, '3', '#66a');
       }
       content.appendChild(axes0);
 
@@ -367,21 +416,50 @@
       }
     }
 
+    function updateMouseControlsInfo(){
+      const svdDims = parseInt(document.getElementById('svdDims').value);
+      const mouseControlsText = document.getElementById('mouseControlsText');
+      
+      if (svdDims === 3) {
+        mouseControlsText.textContent = 'Drag to rotate 3D view • Shift+drag to adjust rotation • Mouse wheel to zoom • Double-click to reset view';
+      } else {
+        mouseControlsText.textContent = 'Drag to pan • Mouse wheel to zoom • Double-click to reset view';
+      }
+    }
+
     document.getElementById('refresh').addEventListener('click', load);
     document.getElementById('reset').addEventListener('click', () => {
       document.getElementById('subject').value = '';
       document.getElementById('policyArea').value = '';
       document.getElementById('subjectTerm').value = '';
       document.getElementById('scope').value = 'policy_area'; toggleSubjectInputs();
-      document.getElementById('k').value = '5';
+      document.getElementById('k').value = ''; // Clear k to trigger suggested k lookup
       document.getElementById('excludeProcedural').checked = true;
       document.getElementById('colorByParty').checked = true;
-      load();
+      document.getElementById('svdDims').value = '3'; // Reset to SVD(3) default
+      updateMouseControlsInfo();
+      load(true); // Use suggested k for reset
+    });
+    document.getElementById('generateReport').addEventListener('click', () => {
+      const k = document.getElementById('k').value;
+      const excludeProcedural = document.getElementById('excludeProcedural').checked;
+      const scope = document.getElementById('scope').value;
+      const subject = scope === 'policy_area' ? document.getElementById('policyArea').value : document.getElementById('subjectTerm').value;
+      const svdDims = document.getElementById('svdDims').value;
+      
+      let url = `/clusters/report?k=${k}&exclude_procedural=${excludeProcedural}&svd_dims=${svdDims}`;
+      if (subject) {
+        url += `&scope=${encodeURIComponent(scope)}&subject=${encodeURIComponent(subject)}`;
+      }
+      window.open(url, '_blank');
     });
     document.getElementById('scope').addEventListener('change', toggleSubjectInputs);
     document.getElementById('colorByParty').addEventListener('change', load);
     document.getElementById('colorByCluster').addEventListener('change', load);
-    document.getElementById('svdDims').addEventListener('change', ()=>{ render(currentItems); });
+    document.getElementById('svdDims').addEventListener('change', ()=>{ 
+      updateMouseControlsInfo();
+      render(currentItems); 
+    });
     document.getElementById('btnSuggestK').addEventListener('click', async ()=>{
       const excludeProcedural = document.getElementById('excludeProcedural').checked;
       const scope = document.getElementById('scope').value;
@@ -474,7 +552,8 @@
     });
     document.addEventListener('DOMContentLoaded', () => {
       toggleSubjectInputs();
-      load();
+      updateMouseControlsInfo();
+      load(true); // Use suggested k for initial load
       // attach zoom/pan handlers
       const svg = document.getElementById('plot');
       // Wheel zoom around cursor
