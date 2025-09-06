@@ -2426,6 +2426,27 @@ def api_clusters():
         maxs = Zk.max(axis=0)
         denom = np.where((maxs - mins) == 0, 1, (maxs - mins))
         Znorm = (Zk - mins) / denom
+        
+        # Add small jitter to identical coordinates to prevent overlapping points
+        np.random.seed(42)  # For reproducible jitter
+        jitter_scale = 0.015  # 1.5% of the coordinate range
+        for dim in range(k_dims):
+            # Find unique values in this dimension
+            unique_vals, inverse_indices = np.unique(Znorm[:, dim], return_inverse=True)
+            # For each unique value, add small random jitter to all points with that value
+            for i, val in enumerate(unique_vals):
+                mask = inverse_indices == i
+                if np.sum(mask) > 1:  # Only jitter if there are multiple points with same value
+                    # Use member index as additional seed for more deterministic jitter
+                    member_indices = np.where(mask)[0]
+                    jitter = np.zeros_like(member_indices, dtype=float)
+                    for j, member_idx in enumerate(member_indices):
+                        np.random.seed(42 + member_idx + dim * 1000)  # Deterministic but varied
+                        jitter[j] = np.random.normal(0, jitter_scale)
+                    Znorm[mask, dim] += jitter
+                    # Ensure jittered values stay within [0,1] bounds
+                    Znorm[mask, dim] = np.clip(Znorm[mask, dim], 0, 1)
+        
         # Normalized location of 0 on each axis (if within range)
         zeros = (0 - mins) / denom
         zeros = np.clip(zeros, 0, 1)

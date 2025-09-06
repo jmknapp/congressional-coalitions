@@ -241,7 +241,15 @@
                             </li>
                         </ul>
                         
-                        <div class="table-responsive">
+                        <!-- Loading Spinner for Members -->
+                        <div id="members-loading-spinner" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading members...</span>
+                            </div>
+                            <div class="mt-2 text-muted">Loading House Members...</div>
+                        </div>
+                        
+                        <div class="table-responsive" id="members-table-container" style="display: none;">
                             <table class="table table-striped table-hover" id="members-table">
                                 <thead>
                                     <tr>
@@ -348,7 +356,15 @@
                         {% endif %}
                     </div>
                     <div class="card-body">
-                        <div class="table-responsive">
+                        <!-- Loading Spinner for Roll Calls -->
+                        <div id="rollcalls-loading-spinner" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading roll calls...</span>
+                            </div>
+                            <div class="mt-2 text-muted">Loading Roll Call Votes...</div>
+                        </div>
+                        
+                        <div class="table-responsive" id="rollcalls-table-container" style="display: none;">
                             <table class="table table-striped table-hover" id="rollcalls-table">
                                 <thead>
                                     <tr>

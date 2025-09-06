@@ -87,6 +87,13 @@ function updatePartyCounts(members) {
 // Display members in the table
 function displayMembers(members) {
     const tbody = document.getElementById('members-tbody');
+    const spinner = document.getElementById('members-loading-spinner');
+    const tableContainer = document.getElementById('members-table-container');
+    
+    // Hide spinner, show table
+    if (spinner) spinner.style.display = 'none';
+    if (tableContainer) tableContainer.style.display = 'block';
+    
     tbody.innerHTML = '';
     
     members.forEach(member => {
@@ -245,6 +252,13 @@ async function loadRollcalls() {
         const rollcalls = await response.json();
         
         const tbody = document.getElementById('rollcalls-tbody');
+        const spinner = document.getElementById('rollcalls-loading-spinner');
+        const tableContainer = document.getElementById('rollcalls-table-container');
+        
+        // Hide spinner, show table
+        if (spinner) spinner.style.display = 'none';
+        if (tableContainer) tableContainer.style.display = 'block';
+        
         tbody.innerHTML = '';
         
         // Sort rollcalls by date descending (most recent first)
