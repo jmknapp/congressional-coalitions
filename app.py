@@ -2520,7 +2520,9 @@ def api_clusters_report():
         if subjects and scope:
             cluster_params += f'&scope={scope}&subject={",".join(subjects)}'
         
-        cluster_resp = requests.get(f'http://localhost:5001/api/clusters?{cluster_params}')
+        # Use the current request's host and port
+        base_url = f"{request.scheme}://{request.host}"
+        cluster_resp = requests.get(f'{base_url}/api/clusters?{cluster_params}')
         if cluster_resp.status_code != 200:
             return jsonify({'error': 'Failed to get cluster data'}), 500
         cluster_data = cluster_resp.json()
@@ -2530,15 +2532,15 @@ def api_clusters_report():
         if subjects and scope:
             svd_params += f'&scope={scope}&subject={",".join(subjects)}'
         
-        svd_resp = requests.get(f'http://localhost:5001/api/svd/components?{svd_params}')
+        svd_resp = requests.get(f'{base_url}/api/svd/components?{svd_params}')
         svd_data = svd_resp.json() if svd_resp.status_code == 200 else {'components': []}
         
         # Get cluster summary
-        summary_resp = requests.get(f'http://localhost:5001/api/clusters/summary?{cluster_params}')
+        summary_resp = requests.get(f'{base_url}/api/clusters/summary?{cluster_params}')
         summary_data = summary_resp.json() if summary_resp.status_code == 200 else {'clusters': []}
         
         # Get auto-k suggestion
-        auto_k_resp = requests.get(f'http://localhost:5001/api/clusters/auto-k?{cluster_params}')
+        auto_k_resp = requests.get(f'{base_url}/api/clusters/auto-k?{cluster_params}')
         auto_k_data = auto_k_resp.json() if auto_k_resp.status_code == 200 else {}
         
         # Combine all data
