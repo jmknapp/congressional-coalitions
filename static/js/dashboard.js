@@ -166,11 +166,11 @@ async function loadBills() {
         let bills;
         if (data.bills) {
             bills = data.bills;
-            console.log(`Bills loaded: ${data.count} bills (cached: ${data.cached}, cache_time: ${data.cache_time})`);
+            // console.log(`Bills loaded: ${data.count} bills (cached: ${data.cached}, cache_time: ${data.cache_time})`);
         } else {
             // Fallback for old format
             bills = data;
-            console.log('Bills loaded:', bills.length, 'bills');
+            // console.log('Bills loaded:', bills.length, 'bills');
         }
         
         const tbody = document.getElementById('bills-tbody');
@@ -182,7 +182,7 @@ async function loadBills() {
         
         bills.forEach((bill, index) => {
             if (index < 10) { // Only log first 10 for debugging
-                console.log('Processing bill:', bill);
+                // console.log('Processing bill:', bill);
             }
             const row = document.createElement('tr');
             const billHref = `/bill/${bill.id}`;
@@ -214,7 +214,7 @@ async function loadBills() {
             tbody.appendChild(row);
         });
         
-        console.log('Bills table populated with', bills.length, 'rows');
+        // console.log('Bills table populated with', bills.length, 'rows');
         
         // Hide spinner, show table
         if (spinner) spinner.style.display = 'none';
@@ -311,7 +311,7 @@ async function loadCrossPartyVoters() {
         const analysisData = await analysisResponse.json();
         const membersData = await membersResponse.json();
         
-        console.log('Members data structure:', Object.keys(membersData));
+        // console.log('Members data structure:', Object.keys(membersData));
         
         const crossPartyVoters = (analysisData.member_analysis && analysisData.member_analysis.cross_party_voters) || [];
         
@@ -336,9 +336,9 @@ async function loadCrossPartyVoters() {
         });
         
         // Debug logging
-        console.log('Member lookup created with', Object.keys(memberLookup).length, 'members');
-        console.log('Sample member IDs:', Object.keys(memberLookup).slice(0, 5));
-        console.log('Sample cross-party voter IDs:', crossPartyVoters.slice(0, 5).map(v => v.member_id));
+        // console.log('Member lookup created with', Object.keys(memberLookup).length, 'members');
+        // console.log('Sample member IDs:', Object.keys(memberLookup).slice(0, 5));
+        // console.log('Sample cross-party voter IDs:', crossPartyVoters.slice(0, 5).map(v => v.member_id));
         
         if (spinner) spinner.style.display = 'none';
         if (tableContainer) tableContainer.style.display = 'block';
@@ -363,16 +363,16 @@ async function loadCrossPartyVoters() {
             
             // Debug logging for first few members
             if (index < 3) {
-                console.log(`Voter ${index}:`, voter.name, 'ID:', bioguideId, 'Member found:', !!member);
+                // console.log(`Voter ${index}:`, voter.name, 'ID:', bioguideId, 'Member found:', !!member);
                 if (member) {
-                    console.log('  Caucus memberships:', {
-                        freedom: member.is_freedom_caucus,
-                        progressive: member.is_progressive_caucus,
-                        blue_dog: member.is_blue_dog_coalition,
-                        maga: member.is_maga_republican,
-                        cbc: member.is_congressional_black_caucus,
-                        true_blue: member.is_true_blue_democrat
-                    });
+                    // console.log('  Caucus memberships:', {
+                    //     freedom: member.is_freedom_caucus,
+                    //     progressive: member.is_progressive_caucus,
+                    //     blue_dog: member.is_blue_dog_coalition,
+                    //     maga: member.is_maga_republican,
+                    //     cbc: member.is_congressional_black_caucus,
+                    //     true_blue: member.is_true_blue_democrat
+                    // });
                 }
             }
             
@@ -425,7 +425,7 @@ async function loadCrossPartyVoters() {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
         
-        console.log(`Cross-party voters loaded: ${crossPartyVoters.length} members (showing top 15)`);
+        // console.log(`Cross-party voters loaded: ${crossPartyVoters.length} members (showing top 15)`);
         
     } catch (error) {
         console.error('Error loading cross-party voters:', error);

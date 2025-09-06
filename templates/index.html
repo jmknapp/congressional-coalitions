@@ -492,7 +492,7 @@
                 actblueLink.style.display = 'block';
             }
             
-            console.log('🚀 Developer Mode ENABLED - Caucus Management & ActBlue URLs available');
+            // console.log('🚀 Developer Mode ENABLED - Caucus Management & ActBlue URLs available');
         }
         
         function disableDeveloperMode() {
@@ -517,11 +517,11 @@
                 actblueLink.style.display = 'none';
             }
             
-            console.log('🔒 Developer Mode DISABLED - Management tools hidden');
+            // console.log('🔒 Developer Mode DISABLED - Management tools hidden');
         }
         
         // Show current mode in console on page load
-        console.log(`Developer Mode: ${developerMode ? 'ENABLED' : 'DISABLED'} (Shift+Ctrl+D to toggle)`);
+        // console.log(`Developer Mode: ${developerMode ? 'ENABLED' : 'DISABLED'} (Shift+Ctrl+D to toggle)`);
         
         // Bill Status Functions
         async function loadBillStatusSummary() {
@@ -550,7 +550,7 @@
                     }
                 });
                 
-                console.log('Bill status summary loaded successfully');
+                // console.log('Bill status summary loaded successfully');
             } catch (error) {
                 console.error('Error loading bill status summary:', error);
             }
@@ -599,5 +599,25 @@
     
     <!-- Bootstrap JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Footer -->
+    <footer class="mt-5 py-4 bg-light border-top">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-2">Additional Analysis</h6>
+                    <a href="/clusters" class="btn btn-outline-primary btn-sm" target="_blank">
+                        <i class="fas fa-chart-scatter me-1"></i>Cluster Analysis
+                    </a>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <small class="text-muted">
+                        Joe Knapp, <a href="mailto:jmknapp@gmail.com">jmknapp@gmail.com</a><br>
+                        Last updated: 09-05-2025
+                    </small>
+                </div>
+            </div>
+        </div>
+    </footer>
 </body>
 </html>
