@@ -2530,6 +2530,14 @@ def cross_party_analysis_page():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+@app.route('/cosponsorship-clusters')
+def cosponsorship_clusters_page():
+    """Co-sponsorship clusters analysis page."""
+    try:
+        return render_template('cosponsorship_clusters.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 @app.route('/api/clusters/report')
 def api_clusters_report():
     """Generate comprehensive report data for cluster analysis.
@@ -2736,6 +2744,193 @@ def api_cross_party_analysis():
                 'votes': coordinated_votes
             })
             
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/cosponsorship-clusters')
+def api_cosponsorship_clusters():
+    """Get co-sponsorship clusters using community detection algorithm."""
+    try:
+        from collections import defaultdict
+        
+        with get_db_session() as session:
+            # Get all cosponsorships with bill data
+            cosponsorships = session.query(Cosponsor, Bill).join(
+                Bill, Cosponsor.bill_id == Bill.bill_id
+            ).limit(10000).all()
+            
+            # Build relationships (bidirectional counts) and track bills
+            relationships = defaultdict(int)
+            member_activity = defaultdict(lambda: {'sponsored': 0, 'cosponsored': 0})
+            relationship_bills = defaultdict(set)  # Track bills for each relationship
+            
+            for cosponsor, bill in cosponsorships:
+                sponsor_id = bill.sponsor_bioguide
+                cosponsor_id = cosponsor.member_id_bioguide
+                
+                if sponsor_id and cosponsor_id and sponsor_id != cosponsor_id:
+                    # Create bidirectional relationship
+                    pair = tuple(sorted([sponsor_id, cosponsor_id]))
+                    relationships[pair] += 1
+                    relationship_bills[pair].add(bill.bill_id)
+                    
+                    # Track activity
+                    member_activity[sponsor_id]['sponsored'] += 1
+                    member_activity[cosponsor_id]['cosponsored'] += 1
+            
+            # Get member details
+            all_member_ids = set()
+            for pair in relationships.keys():
+                all_member_ids.update(pair)
+            
+            members = {m.member_id_bioguide: m for m in session.query(Member).filter(
+                Member.member_id_bioguide.in_(all_member_ids)
+            ).all()}
+            
+            # Filter for strong relationships and build clusters
+            min_relationship_strength = 3
+            strong_relationships = [(pair, count) for pair, count in relationships.items() 
+                                   if count >= min_relationship_strength]
+            
+            # Sort by relationship strength and take top pairs
+            strong_relationships.sort(key=lambda x: x[1], reverse=True)
+            top_relationships = strong_relationships[:100]  # Limit for performance
+            
+            # Build member groups from top relationships
+            member_groups = defaultdict(set)
+            for (member1, member2), strength in top_relationships:
+                member_groups[member1].add(member2)
+                member_groups[member2].add(member1)
+            
+            # Create clusters from member groups
+            clusters = []
+            processed_members = set()
+            cluster_id = 0
+            
+            for member_id, connected_members in member_groups.items():
+                if member_id in processed_members:
+                    continue
+                    
+                # Start a new cluster with this member and their connections
+                cluster_members = {member_id} | connected_members
+                processed_members.update(cluster_members)
+                
+                # Limit cluster size for readability
+                if 2 <= len(cluster_members) <= 12:
+                    # Get member details for this cluster
+                    cluster_member_details = []
+                    party_breakdown = defaultdict(int)
+                    state_breakdown = defaultdict(int)
+                    total_relationships_in_cluster = 0
+                    relationship_strengths = []
+                    
+                    for mem_id in cluster_members:
+                        if mem_id in members:
+                            member = members[mem_id]
+                            activity = member_activity[mem_id]
+                            
+                            cluster_member_details.append({
+                                'id': mem_id,
+                                'name': f"{member.first} {member.last}",
+                                'party': member.party or 'Unknown',
+                                'state': member.state or 'Unknown',
+                                'district': member.district or 0,
+                                'sponsored_bills': activity['sponsored'],
+                                'cosponsored_bills': activity['cosponsored'],
+                                'total_activity': activity['sponsored'] + activity['cosponsored']
+                            })
+                            
+                            party_breakdown[member.party or 'Unknown'] += 1
+                            state_breakdown[member.state or 'Unknown'] += 1
+                    
+                    # Calculate cluster statistics and collect bills
+                    cluster_bills = set()
+                    for mem1 in cluster_members:
+                        for mem2 in cluster_members:
+                            if mem1 < mem2:  # Avoid duplicates
+                                pair = (mem1, mem2)
+                                if pair in relationships:
+                                    strength = relationships[pair]
+                                    total_relationships_in_cluster += strength
+                                    relationship_strengths.append(strength)
+                                    # Collect bills for this relationship
+                                    cluster_bills.update(relationship_bills[pair])
+                    
+                    # Analyze bills for this cluster
+                    cluster_bill_analysis = {}
+                    if cluster_bills:
+                        # Get bill details for analysis
+                        cluster_bill_objects = session.query(Bill).filter(Bill.bill_id.in_(cluster_bills)).all()
+                        
+                        # Analyze policy areas
+                        policy_areas = defaultdict(int)
+                        for bill in cluster_bill_objects:
+                            if bill.policy_area:
+                                policy_areas[bill.policy_area] += 1
+                        
+                        # Get subject terms for these bills
+                        subject_terms = defaultdict(int)
+                        if cluster_bill_objects:
+                            bill_ids = [bill.bill_id for bill in cluster_bill_objects]
+                            bill_subjects = session.query(BillSubject).filter(BillSubject.bill_id.in_(bill_ids)).all()
+                            for bs in bill_subjects:
+                                if bs.subject_term:
+                                    subject_terms[bs.subject_term] += 1
+                        
+                        cluster_bill_analysis = {
+                            'total_bills': len(cluster_bills),
+                            'top_policy_areas': dict(sorted(policy_areas.items(), key=lambda x: x[1], reverse=True)[:5]),
+                            'top_subject_terms': dict(sorted(subject_terms.items(), key=lambda x: x[1], reverse=True)[:10])
+                        }
+                    
+                    # Sort members by total activity
+                    cluster_member_details.sort(key=lambda x: x['total_activity'], reverse=True)
+                    
+                    clusters.append({
+                        'id': cluster_id,
+                        'size': len(cluster_member_details),
+                        'members': cluster_member_details,
+                        'total_relationships': total_relationships_in_cluster,
+                        'avg_relationship_strength': sum(relationship_strengths) / len(relationship_strengths) if relationship_strengths else 0,
+                        'party_breakdown': dict(party_breakdown),
+                        'top_states': dict(sorted(state_breakdown.items(), key=lambda x: x[1], reverse=True)[:5]),
+                        'bill_analysis': cluster_bill_analysis
+                    })
+                    cluster_id += 1
+            
+            # Sort clusters by size and relationship strength
+            clusters.sort(key=lambda x: (x['size'], x['avg_relationship_strength']), reverse=True)
+            
+            # Calculate statistics
+            total_members = len(members)
+            members_in_clusters = sum(cluster['size'] for cluster in clusters)
+            isolated_members = total_members - members_in_clusters
+            
+            # Get bill count for statistics
+            bill_ids = {cosponsor.bill_id for cosponsor, bill in cosponsorships}
+            
+            statistics = {
+                'total_members': total_members,
+                'total_cosponsorships': len(cosponsorships),
+                'bills_with_cosponsors': len(bill_ids),
+                'total_clusters': len(clusters),
+                'members_in_clusters': members_in_clusters,
+                'isolated_members': isolated_members,
+                'avg_cluster_size': members_in_clusters / len(clusters) if clusters else 0,
+                'total_relationships': len(relationships),
+                'strong_relationships': len(strong_relationships),
+                'max_relationship_strength': max(relationships.values()) if relationships else 0
+            }
+        
+        return jsonify({
+            'success': True,
+            'clusters': clusters,
+            'statistics': statistics
+        })
+        
     except Exception as e:
         return jsonify({
             'success': False,

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-sponsorship Clusters - Congressional Coalition Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=2024010308" rel="stylesheet">
+    <style>
+        .cluster-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 1rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .cluster-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .cluster-body {
+            padding: 1.5rem;
+        }
+        
+        .member-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+        }
+        
+        .member-card:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .member-name {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        
+        .member-details {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .activity-badge {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 1rem;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stats-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .party-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-right: 0.5rem;
+        }
+        
+        .party-democrat {
+            background-color: #1f77b4;
+            color: white;
+        }
+        
+        .party-republican {
+            background-color: #ff7f0e;
+            color: white;
+        }
+        
+        .party-independent {
+            background-color: #2ca02c;
+            color: white;
+        }
+        
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 400px;
+        }
+        
+        .cluster-stats {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .cluster-stat {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .top-states {
+            margin-top: 1rem;
+        }
+        
+        .state-tag {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                119th Congress Analysis, House of Representatives
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/clusters">
+                    <i class="fas fa-project-diagram me-1"></i>Cluster Analysis
+                </a>
+                <a class="nav-link" href="/cross-party-analysis">
+                    <i class="fas fa-handshake me-1"></i>Cross-party Analysis
+                </a>
+                <a class="nav-link" href="/cosponsorship-clusters">
+                    <i class="fas fa-users me-1"></i>Co-sponsorship Clusters
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-users me-2"></i>Co-sponsorship Clusters</h1>
+                <p class="text-muted">Groups of members who frequently co-sponsor bills together</p>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading-spinner">
+            <div class="text-center">
+                <i class="fas fa-spinner fa-spin fa-2x text-primary"></i>
+                <p class="mt-2">Loading co-sponsorship cluster data...</p>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="alert alert-danger" style="display: none;">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span id="error-message"></span>
+        </div>
+
+        <!-- Content -->
+        <div id="content" style="display: none;">
+            <!-- Summary Statistics -->
+            <div class="stats-card">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="total-members">-</div>
+                            <div>House Members</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="total-clusters">-</div>
+                            <div>Clusters Found</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="members-in-clusters">-</div>
+                            <div>Members in Clusters</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="avg-cluster-size">-</div>
+                            <div>Avg Cluster Size</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Relationship Statistics -->
+            <div class="stats-card mt-3">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="total-relationships">-</div>
+                            <div>Total Relationships</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="strong-relationships">-</div>
+                            <div>Strong Relationships</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="max-relationship-strength">-</div>
+                            <div>Max Relationship</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="total-cosponsorships">-</div>
+                            <div>Total Co-sponsorships</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="total-bills-analyzed">-</div>
+                            <div>Bills Analyzed</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="bills-with-cosponsors">-</div>
+                            <div>Bills with Co-sponsors</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="isolated-members">-</div>
+                            <div>Isolated Members</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="stats-number" id="avg-bills-per-cluster">-</div>
+                            <div>Avg Bills per Cluster</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clusters -->
+            <div id="clusters-container"></div>
+
+            <!-- Explanation -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <h5><i class="fas fa-info-circle me-2"></i>About Co-sponsorship Clusters</h5>
+                        <p class="mb-0">
+                            These clusters represent groups of House members who frequently co-sponsor bills together. 
+                            Members are grouped based on their co-sponsorship relationships, with a minimum threshold 
+                            of 3 co-sponsorships to form a cluster. This helps identify legislative coalitions and 
+                            collaboration patterns within the House.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Load co-sponsorship cluster data
+        async function loadCosponsorshipClusters() {
+            try {
+                console.log('Loading co-sponsorship clusters...');
+                
+                // Add timeout to prevent hanging
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
+                const response = await fetch('/api/cosponsorship-clusters', {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                console.log('API response received, status:', response.status);
+                const data = await response.json();
+                console.log('Data parsed, clusters:', data.clusters?.length);
+                
+                if (response.ok && data.success) {
+                    console.log('Displaying statistics...');
+                    displayStatistics(data.statistics);
+                    console.log('Displaying clusters...');
+                    displayClusters(data.clusters);
+                    console.log('Hiding loading spinner...');
+                    document.getElementById('loading').style.display = 'none';
+                    console.log('Showing content...');
+                    document.getElementById('content').style.display = 'block';
+                    console.log('Page loaded successfully');
+                } else {
+                    showError(data.error || 'Failed to load co-sponsorship cluster data');
+                }
+            } catch (error) {
+                console.error('Error loading clusters:', error);
+                if (error.name === 'AbortError') {
+                    showError('Request timed out. The API is taking too long to respond.');
+                } else {
+                    showError('Error loading co-sponsorship clusters: ' + error.message);
+                }
+            }
+        }
+
+        function displayStatistics(stats) {
+            document.getElementById('total-members').textContent = stats.total_members;
+            document.getElementById('total-clusters').textContent = stats.total_clusters;
+            document.getElementById('members-in-clusters').textContent = stats.members_in_clusters;
+            document.getElementById('avg-cluster-size').textContent = stats.avg_cluster_size.toFixed(1);
+            
+            // Relationship statistics
+            document.getElementById('total-relationships').textContent = stats.total_relationships;
+            document.getElementById('strong-relationships').textContent = stats.strong_relationships;
+            document.getElementById('max-relationship-strength').textContent = stats.max_relationship_strength;
+            document.getElementById('total-cosponsorships').textContent = stats.total_cosponsorships;
+            
+            // Bill analysis statistics
+            document.getElementById('bills-with-cosponsors').textContent = stats.bills_with_cosponsors;
+            document.getElementById('isolated-members').textContent = stats.isolated_members;
+        }
+        
+        function updateBillStatistics(clusters) {
+            // Calculate total bills analyzed across all clusters
+            let totalBillsAnalyzed = 0;
+            clusters.forEach(cluster => {
+                if (cluster.bill_analysis && cluster.bill_analysis.total_bills) {
+                    totalBillsAnalyzed += cluster.bill_analysis.total_bills;
+                }
+            });
+            
+            document.getElementById('total-bills-analyzed').textContent = totalBillsAnalyzed;
+            
+            // Calculate average bills per cluster
+            const clustersWithBills = clusters.filter(cluster => 
+                cluster.bill_analysis && cluster.bill_analysis.total_bills > 0
+            ).length;
+            const avgBillsPerCluster = clustersWithBills > 0 ? (totalBillsAnalyzed / clustersWithBills).toFixed(1) : 0;
+            document.getElementById('avg-bills-per-cluster').textContent = avgBillsPerCluster;
+        }
+
+        function displayClusters(clusters) {
+            console.log('displayClusters called with', clusters.length, 'clusters');
+            const container = document.getElementById('clusters-container');
+            container.innerHTML = '';
+
+            if (clusters.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        No co-sponsorship clusters found.
+                    </div>
+                `;
+                return;
+            }
+
+            // Limit to top 20 clusters for better overview
+            const topClusters = clusters.slice(0, 20);
+            console.log('Processing', topClusters.length, 'clusters');
+            
+            // Create simple cluster display
+            topClusters.forEach((cluster, index) => {
+                console.log('Creating simple cluster', index + 1);
+                const clusterDiv = document.createElement('div');
+                clusterDiv.className = 'card mb-3';
+                clusterDiv.innerHTML = `
+                    <div class="card-header">
+                        <h5>Cluster ${cluster.id + 1} - ${cluster.size} members</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Relationship Strength:</strong> ${cluster.total_relationships} total co-sponsorships, ${cluster.avg_relationship_strength.toFixed(1)} avg per pair</p>
+                        <p><strong>Party breakdown:</strong> ${JSON.stringify(cluster.party_breakdown)}</p>
+                        <p><strong>Top states:</strong> ${JSON.stringify(cluster.top_states)}</p>
+                        ${cluster.bill_analysis && cluster.bill_analysis.total_bills > 0 ? `
+                            <div class="mt-3">
+                                <h6><i class="fas fa-file-alt me-2"></i>Bill Analysis (${cluster.bill_analysis.total_bills} bills)</h6>
+                                <p><strong>Top Policy Areas:</strong> ${Object.entries(cluster.bill_analysis.top_policy_areas).map(([area, count]) => `${area} (${count})`).join(', ')}</p>
+                                <p><strong>Key Subject Terms:</strong> ${Object.entries(cluster.bill_analysis.top_subject_terms).slice(0, 5).map(([term, count]) => `${term} (${count})`).join(', ')}</p>
+                            </div>
+                        ` : ''}
+                        <p><strong>Members:</strong></p>
+                        <ul>
+                            ${(cluster.members || []).slice(0, 10).map(member => 
+                                `<li>${member.name} (${member.party}-${member.state}) - ${member.total_activity} activity (${member.sponsored_bills} sponsored, ${member.cosponsored_bills} co-sponsored)</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                `;
+                container.appendChild(clusterDiv);
+            });
+            
+            // Show message if we're displaying fewer clusters than total
+            if (clusters.length > 20) {
+                const moreInfo = document.createElement('div');
+                moreInfo.className = 'alert alert-info mt-3';
+                moreInfo.innerHTML = `
+                    <i class="fas fa-info-circle me-2"></i>
+                    Showing top 20 clusters out of ${clusters.length} total clusters found.
+                    The remaining clusters have smaller sizes or lower relationship strengths.
+                `;
+                container.appendChild(moreInfo);
+            }
+            
+            // Update bill statistics after displaying clusters
+            updateBillStatistics(clusters);
+            
+            console.log('displayClusters completed');
+        }
+
+        function createClusterCard(cluster) {
+            console.log('Creating cluster card for cluster', cluster.id);
+            const card = document.createElement('div');
+            card.className = 'cluster-card';
+            
+            // Create party breakdown badges
+            const partyBreakdown = Object.entries(cluster.party_breakdown || {})
+                .map(([party, count]) => {
+                    const partyClass = party === 'D' ? 'democrat' : party === 'R' ? 'republican' : 'independent';
+                    return `<span class="party-badge party-${partyClass}">${party}: ${count}</span>`;
+                }).join('');
+
+            // Create top states
+            const topStates = Object.entries(cluster.top_states || {})
+                .map(([state, count]) => `<span class="state-tag">${state}: ${count}</span>`)
+                .join('');
+
+            // Create member cards HTML
+            const membersHtml = (cluster.members || []).slice(0, 6).map(member => {
+                const partyClass = member.party === 'D' ? 'democrat' : member.party === 'R' ? 'republican' : 'independent';
+                return `
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="member-card">
+                            <div class="member-name">
+                                <a href="/member/${member.id}" target="_blank" class="text-white text-decoration-none">
+                                    ${member.name}
+                                </a>
+                            </div>
+                            <div class="member-details">
+                                <span class="party-badge party-${partyClass}">${member.party}</span>
+                                ${member.state}-${member.district}
+                            </div>
+                            <div class="mt-2">
+                                <span class="activity-badge">
+                                    <i class="fas fa-file-alt me-1"></i>
+                                    ${member.sponsored_bills || 0} sponsored
+                                </span>
+                                <span class="activity-badge">
+                                    <i class="fas fa-handshake me-1"></i>
+                                    ${member.cosponsored_bills || 0} co-sponsored
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            card.innerHTML = `
+                <div class="cluster-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h3 class="mb-0">
+                            <i class="fas fa-users me-2"></i>
+                            Cluster ${cluster.id + 1}
+                        </h3>
+                        <div class="cluster-stats">
+                            <div class="cluster-stat">
+                                <i class="fas fa-users me-1"></i>
+                                ${cluster.size || 0} members
+                            </div>
+                            <div class="cluster-stat">
+                                <i class="fas fa-link me-1"></i>
+                                ${cluster.total_relationships || 0} relationships
+                            </div>
+                            <div class="cluster-stat">
+                                <i class="fas fa-chart-line me-1"></i>
+                                ${(cluster.avg_relationship_strength || 0).toFixed(1)} avg strength
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        ${partyBreakdown}
+                    </div>
+                    ${topStates ? `
+                        <div class="top-states">
+                            <strong>Top States:</strong><br>
+                            ${topStates}
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="cluster-body">
+                    <div class="row">
+                        ${membersHtml}
+                    </div>
+                    ${(cluster.members || []).length > 6 ? `
+                        <div class="text-center mt-3">
+                            <small class="text-light">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Showing top 6 members out of ${cluster.members.length} total members in this cluster
+                            </small>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            console.log('Cluster card created successfully');
+            return card;
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', loadCosponsorshipClusters);
+    </script>
+</body>
+</html>
