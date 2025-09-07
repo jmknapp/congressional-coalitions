@@ -262,69 +262,241 @@
       const negPA = comp.policy_area_neg || [];
       const posST = comp.subject_term_pos || [];
       const negST = comp.subject_term_neg || [];
+      const posRC = comp.top_rollcalls_pos || [];
+      const negRC = comp.top_rollcalls_neg || [];
       
-      // Get top positive policy areas and subject terms
-      const topPA = posPA.slice(0, 2).map(pa => pa.name).join('/');
+      // Analyze axis characteristics
+      const characteristics = analyzeAxisCharacteristics(posPA, negPA, posST, negST, posRC, negRC);
       
-      // Skip "Congressional Oversight" and use next subject term
+      // Generate nuanced description
+      const description = generateNuancedAxisDescription(characteristics);
+      
+      // Debug logging
+      console.log('Axis Analysis (Report):', {
+        compIndex: comp.index,
+        characteristics,
+        description,
+        posPA: posPA.slice(0, 2),
+        posST: posST.slice(0, 2),
+        posRC: posRC.slice(0, 2).map(rc => ({ weight: rc.weight, question: rc.question?.substring(0, 50) }))
+      });
+      
+      return description;
+    }
+    
+    function analyzeAxisCharacteristics(posPA, negPA, posST, negST, posRC, negRC) {
+      const analysis = {
+        primaryPolicy: null,
+        secondaryPolicy: null,
+        primarySubject: null,
+        secondarySubject: null,
+        votingPattern: null,
+        ideologicalBent: null,
+        strength: 'moderate'
+      };
+      
+      // Analyze policy areas
+      if (posPA.length > 0) {
+        analysis.primaryPolicy = posPA[0];
+        if (posPA.length > 1) {
+          analysis.secondaryPolicy = posPA[1];
+        }
+      }
+      
+      // Analyze subject terms (skip "Congressional Oversight")
       let filteredST = posST.filter(st => 
         !st.name.toLowerCase().includes('congressional oversight')
       );
       if (filteredST.length === 0) {
-        filteredST = posST; // Fall back to original if all were filtered
+        filteredST = posST;
       }
-      const topST = filteredST.slice(0, 2).map(st => st.name).join('/');
       
-      // Create characterization based on highest scoring items
-      let characterization = '';
+      if (filteredST.length > 0) {
+        analysis.primarySubject = filteredST[0];
+        if (filteredST.length > 1) {
+          analysis.secondarySubject = filteredST[1];
+        }
+      }
       
-      if (topPA && topST) {
-        // If we have both policy areas and subject terms, combine them
-        const paWords = topPA.split('/')[0].split(' ')[0]; // First word of first policy area
-        const st = topST.split('/')[0]; // First subject term
+      // Analyze voting patterns from roll calls
+      if (posRC.length > 0 && negRC.length > 0) {
+        const posStrength = Math.abs(posRC[0]?.weight || 0);
+        const negStrength = Math.abs(negRC[0]?.weight || 0);
         
-        // Use smart truncation for subject term
-        let stWords = '';
-        if (st.split(' ').length <= 3) {
-          stWords = st;
+        if (posStrength > 0.3 || negStrength > 0.3) {
+          analysis.strength = 'strong';
+        } else if (posStrength > 0.2 || negStrength > 0.2) {
+          analysis.strength = 'moderate';
         } else {
-          // Look for natural break points
-          const stWordsArray = st.split(' ');
-          const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
-          let breakIndex = -1;
-          
-          for (let i = 2; i < Math.min(4, stWordsArray.length); i++) {
-            if (breakWords.includes(stWordsArray[i].toLowerCase())) {
-              breakIndex = i;
-              break;
-            }
-          }
-          
-          if (breakIndex > 0) {
-            stWords = stWordsArray.slice(0, breakIndex).join(' ');
-          } else {
-            stWords = stWordsArray.slice(0, 3).join(' ');
-          }
+          analysis.strength = 'weak';
         }
         
-        characterization = `${paWords}/${stWords}`;
-      } else if (topPA) {
-        // Just use policy area
-        characterization = topPA.split('/')[0];
-      } else if (topST) {
-        // Just use subject term
-        characterization = topST.split('/')[0];
-      } else {
-        characterization = 'General';
+        // Determine ideological bent based on roll call patterns
+        if (posRC.length > 0) {
+          // Look at top 3 roll calls for better pattern detection
+          const topRCs = posRC.slice(0, 3);
+          const questions = topRCs.map(rc => rc.question || '').join(' ').toLowerCase();
+          
+          // Count keyword matches for each category
+          const securityKeywords = ['defense', 'military', 'security', 'veterans', 'armed forces', 'national security', 'border', 'immigration'];
+          const socialKeywords = ['health', 'education', 'social security', 'medicare', 'medicaid', 'welfare', 'housing', 'poverty'];
+          const economicKeywords = ['economy', 'tax', 'budget', 'spending', 'debt', 'trade', 'commerce', 'financial', 'banking'];
+          const environmentalKeywords = ['environment', 'climate', 'energy', 'renewable', 'pollution', 'conservation', 'green'];
+          const proceduralKeywords = ['motion', 'procedural', 'rule', 'amendment', 'committee', 'floor'];
+          
+          const securityCount = securityKeywords.filter(kw => questions.includes(kw)).length;
+          const socialCount = socialKeywords.filter(kw => questions.includes(kw)).length;
+          const economicCount = economicKeywords.filter(kw => questions.includes(kw)).length;
+          const environmentalCount = environmentalKeywords.filter(kw => questions.includes(kw)).length;
+          const proceduralCount = proceduralKeywords.filter(kw => questions.includes(kw)).length;
+          
+          // Determine dominant theme (avoid procedural)
+          if (proceduralCount > 2) {
+            analysis.ideologicalBent = 'procedural';
+          } else {
+            const counts = [
+              { type: 'security', count: securityCount },
+              { type: 'social', count: socialCount },
+              { type: 'economic', count: economicCount },
+              { type: 'environmental', count: environmentalCount }
+            ].sort((a, b) => b.count - a.count);
+            
+            if (counts[0].count > 0) {
+              analysis.ideologicalBent = counts[0].type;
+            }
+          }
+        }
       }
       
-      // Clean up the characterization
-      characterization = characterization
-        .replace(/[^a-zA-Z0-9\s\/]/g, '') // Remove special characters
-        .replace(/\s+/g, ' ') // Normalize spaces
+      return analysis;
+    }
+    
+    function generateNuancedAxisDescription(analysis) {
+      const parts = [];
+      
+      // Strategy: Create more distinctive descriptions by considering multiple factors
+      
+      // 1. Primary focus with scoring consideration
+      if (analysis.primaryPolicy && analysis.primarySubject) {
+        const policy = analysis.primaryPolicy.name;
+        const subject = analysis.primarySubject.name;
+        const policyScore = analysis.primaryPolicy.score || 0;
+        const subjectScore = analysis.primarySubject.score || 0;
+        
+        // If one is significantly stronger, use that as primary
+        if (Math.abs(policyScore - subjectScore) > 0.5) {
+          if (policyScore > subjectScore) {
+            parts.push(policy);
+            // Add subject as secondary if it's different enough
+            if (!policy.toLowerCase().includes(subject.toLowerCase()) && 
+                !subject.toLowerCase().includes(policy.toLowerCase())) {
+              parts.push(truncateSubjectTerm(subject));
+            }
+          } else {
+            parts.push(truncateSubjectTerm(subject));
+            // Add policy as secondary if it's different enough
+            if (!subject.toLowerCase().includes(policy.toLowerCase()) && 
+                !policy.toLowerCase().includes(subject.toLowerCase())) {
+              parts.push(policy.split(' ')[0]);
+            }
+          }
+        } else {
+          // Similar scores - combine intelligently
+          if (policy.toLowerCase().includes(subject.toLowerCase()) || 
+              subject.toLowerCase().includes(policy.toLowerCase())) {
+            // Use the more specific one
+            parts.push(policy.length < subject.length ? policy : truncateSubjectTerm(subject));
+          } else {
+            // Combine them
+            const policyWords = policy.split(' ')[0];
+            const subjectWords = truncateSubjectTerm(subject);
+            parts.push(`${policyWords}/${subjectWords}`);
+          }
+        }
+      } else if (analysis.primaryPolicy) {
+        parts.push(analysis.primaryPolicy.name);
+      } else if (analysis.primarySubject) {
+        parts.push(truncateSubjectTerm(analysis.primarySubject.name));
+      }
+      
+      // 2. Add ideological bent as a distinguishing factor
+      if (analysis.ideologicalBent && analysis.strength === 'strong') {
+        const bent = analysis.ideologicalBent;
+        let bentLabel = '';
+        if (bent === 'security') bentLabel = 'Security';
+        else if (bent === 'social') bentLabel = 'Social';
+        else if (bent === 'economic') bentLabel = 'Economic';
+        else if (bent === 'environmental') bentLabel = 'Environmental';
+        else if (bent === 'procedural') bentLabel = 'Procedural';
+        
+        if (bentLabel && !parts.some(p => p.toLowerCase().includes(bentLabel.toLowerCase()))) {
+          parts.push(bentLabel);
+        }
+      }
+      
+      // 3. Add secondary policy if it provides meaningful distinction
+      if (analysis.secondaryPolicy && parts.length < 2) {
+        const secondary = analysis.secondaryPolicy.name;
+        const primary = parts[0] || '';
+        
+        if (secondary !== primary && 
+            !primary.toLowerCase().includes(secondary.toLowerCase()) &&
+            !secondary.toLowerCase().includes(primary.toLowerCase())) {
+          parts.push(secondary.split(' ')[0]);
+        }
+      }
+      
+      // 4. Combine parts with smart joining
+      let description = '';
+      if (parts.length === 1) {
+        description = parts[0];
+      } else if (parts.length === 2) {
+        // Use different separators based on content
+        const [first, second] = parts;
+        if (first.length + second.length < 15) {
+          description = `${first}/${second}`;
+        } else {
+          description = `${first.split(' ')[0]}/${second}`;
+        }
+      } else if (parts.length > 2) {
+        description = `${parts[0]}/${parts[1]}`;
+      }
+      
+      // 5. Fallback and cleanup
+      if (!description || description.length < 3) {
+        description = 'General';
+      }
+      
+      // Clean up
+      description = description
+        .replace(/[^a-zA-Z0-9\s\/]/g, '')
+        .replace(/\s+/g, ' ')
         .trim();
       
-      return characterization;
+      return description;
+    }
+    
+    function truncateSubjectTerm(term) {
+      if (term.split(' ').length <= 3) {
+        return term;
+      }
+      
+      const words = term.split(' ');
+      const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
+      let breakIndex = -1;
+      
+      for (let i = 2; i < Math.min(4, words.length); i++) {
+        if (breakWords.includes(words[i].toLowerCase())) {
+          breakIndex = i;
+          break;
+        }
+      }
+      
+      if (breakIndex > 0) {
+        return words.slice(0, breakIndex).join(' ');
+      } else {
+        return words.slice(0, 3).join(' ');
+      }
     }
 
     function generateClusterDescription(cluster) {
@@ -507,7 +679,7 @@
           <div class="cluster-card">
             <div class="cluster-header">
               <h4>Cluster ${cluster.id + 1} <span class="badge bg-primary">${cluster.size} members</span></h4>
-              <p class="text-muted mb-0"><em>${generateClusterDescription(cluster)}</em></p>
+              <p class="text-muted mb-0"><em>${cluster.description || "General voting pattern"}</em></p>
             </div>
             <div class="cluster-body">
               <div class="row">
@@ -592,7 +764,7 @@
               <h5>Cluster ${clusterNum} Members (${members.length})</h5>
               <p class="text-muted mb-2"><em>${(() => {
                 const cluster = clusters.find(c => c.id === parseInt(clusterId));
-                return cluster ? generateClusterDescription(cluster) : 'General voting pattern';
+                return cluster ? (cluster.description || "General voting pattern") : "General voting pattern";
               })()}</em></p>
             </div>
             <div class="cluster-body">

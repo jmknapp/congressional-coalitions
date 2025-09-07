@@ -37,6 +37,118 @@ from scripts.setup_db import Member, Bill, Rollcall, Vote
 
 logger = logging.getLogger(__name__)
 
+def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, rollcall_party_positions: dict, member_parties: dict) -> float:
+    """
+    Calculate partyliner score for a member.
+    
+    Score ranges from 0 (always votes against party) to 1 (always votes with party).
+    Weighted by how decisive the party's position was on each vote.
+    Cross-party votes where the party lost by 1 are overweighted.
+    
+    Args:
+        member_id: Member's bioguide ID
+        party: Member's party ('D' or 'R')
+        vote_matrix: Dict mapping rollcall_id to member votes
+        rollcall_party_positions: Dict mapping rollcall_id to party positions
+        member_parties: Dict mapping member_id to party
+    
+    Returns:
+        Float between 0 and 1 representing partyliner score
+    """
+    weighted_sum = 0.0
+    total_weight = 0.0
+    
+    for rollcall_id, rollcall_votes in vote_matrix.items():
+        if member_id not in rollcall_votes:
+            continue
+            
+        vote = rollcall_votes[member_id]
+        if vote not in ['Yea', 'Nay']:
+            continue
+            
+        # Get party position for this rollcall
+        if rollcall_id not in rollcall_party_positions or party not in rollcall_party_positions[rollcall_id]:
+            continue
+            
+        party_position = rollcall_party_positions[rollcall_id][party]
+        if party_position == 'Tie':
+            # If party is tied, assign weight 0 (no party position to follow)
+            continue
+            
+        # Count party votes for this rollcall
+        party_yea = 0
+        party_nay = 0
+        
+        for other_member_id, other_vote in rollcall_votes.items():
+            if other_vote in ['Yea', 'Nay'] and member_parties.get(other_member_id) == party:
+                if other_vote == 'Yea':
+                    party_yea += 1
+                else:
+                    party_nay += 1
+        
+        # Calculate party proportion
+        total_party_votes = party_yea + party_nay
+        if total_party_votes == 0:
+            continue
+            
+        if party_position == 'Yea':
+            party_proportion = party_yea / total_party_votes
+        else:  # party_position == 'Nay'
+            party_proportion = party_nay / total_party_votes
+            
+        # Base weight = abs(party_proportion - 0.5)
+        base_weight = abs(party_proportion - 0.5)
+        
+        # Check if this was a coordinated cross-party vote (multiple party members cross-voted together)
+        is_coordinated_cross_party = False
+        if vote != party_position:  # Member voted against party
+            # Count how many members of the same party also voted against party position
+            party_cross_voters = 0
+            for other_member_id, other_vote in rollcall_votes.items():
+                if (other_vote in ['Yea', 'Nay'] and 
+                    member_parties.get(other_member_id) == party and 
+                    other_vote != party_position):
+                    party_cross_voters += 1
+            
+            # Count total votes for each position across all parties
+            total_yea = sum(1 for v in rollcall_votes.values() if v == 'Yea')
+            total_nay = sum(1 for v in rollcall_votes.values() if v == 'Nay')
+            
+            # Check if the coordinated cross-party voting would have changed the outcome
+            if party_cross_voters >= 2:  # At least 2 party members cross-voted together
+                # Calculate what the vote would have been if all party members voted party line
+                if party_position == 'Yea':
+                    # Party wanted Yea, so add cross-voters to Yea count
+                    hypothetical_yea = total_yea + party_cross_voters
+                    hypothetical_nay = total_nay - party_cross_voters
+                else:  # party_position == 'Nay'
+                    # Party wanted Nay, so add cross-voters to Nay count
+                    hypothetical_yea = total_yea - party_cross_voters
+                    hypothetical_nay = total_nay + party_cross_voters
+                
+                # Check if the outcome would have been different
+                current_outcome = 'Yea' if total_yea > total_nay else 'Nay'
+                hypothetical_outcome = 'Yea' if hypothetical_yea > hypothetical_nay else 'Nay'
+                
+                if current_outcome != hypothetical_outcome:
+                    is_coordinated_cross_party = True
+        
+        # Apply overweighting for coordinated cross-party votes
+        if is_coordinated_cross_party:
+            weight = base_weight * 3.0  # 3x weight for coordinated cross-party votes
+        else:
+            weight = base_weight
+        
+        # Binary score: 1 if voted with party, 0 if against
+        voted_with_party = 1 if vote == party_position else 0
+        
+        weighted_sum += voted_with_party * weight
+        total_weight += weight
+    
+    # Return weighted average, or 0.5 if no votes
+    return weighted_sum / total_weight if total_weight > 0 else 0.5
+
+
 def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[str, Dict]:
     """
     Calculate ideological scores based on voting patterns - FAST VERSION.
@@ -65,6 +177,9 @@ def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[s
         for vote in votes:
             vote_matrix[vote.rollcall_id][vote.member_id_bioguide] = vote.vote_code
         
+        # Build member parties lookup for efficiency
+        member_parties = {member.member_id_bioguide: member.party for member in members}
+        
         # Pre-calculate party positions for each rollcall
         rollcall_party_positions = {}
         for rollcall_id, rollcall_votes in vote_matrix.items():
@@ -72,11 +187,9 @@ def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[s
             
             for member_id, vote_code in rollcall_votes.items():
                 if vote_code in ['Yea', 'Nay']:
-                    member = session.query(Member).filter(
-                        Member.member_id_bioguide == member_id
-                    ).first()
-                    if member and member.party in ['D', 'R']:
-                        party_votes[member.party][vote_code] += 1
+                    party = member_parties.get(member_id)
+                    if party in ['D', 'R']:
+                        party_votes[party][vote_code] += 1
             
             # Determine party position for each rollcall
             rollcall_party_positions[rollcall_id] = {}
@@ -128,6 +241,11 @@ def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[s
             party_line_percentage = (party_line_votes / total_votes * 100) if total_votes > 0 else 0
             cross_party_percentage = (cross_party_votes / total_votes * 100) if total_votes > 0 else 0
             
+            # Calculate partyliner score
+            partyliner_score = calculate_partyliner_score(
+                member_id, party, vote_matrix, rollcall_party_positions, member_parties
+            )
+            
             member_scores[member_id] = {
                 'name': f"{member.first} {member.last}",
                 'party': party,
@@ -136,7 +254,8 @@ def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[s
                 'total_votes': total_votes,
                 'party_line_percentage': party_line_percentage,
                 'cross_party_percentage': cross_party_percentage,
-                'ideological_score': party_line_percentage - cross_party_percentage
+                'ideological_score': party_line_percentage - cross_party_percentage,
+                'partyliner_score': partyliner_score
             }
     
     return member_scores
@@ -159,25 +278,28 @@ def assign_ideological_labels(member_scores: Dict[str, Dict]) -> Dict[str, Dict]
         # Party-specific labels based on voting patterns
         # NOTE: These are NOT official caucus memberships, just voting behavior classifications
         
+        # Get partyliner score for more nuanced labeling
+        partyliner_score = scores.get('partyliner_score', 0.5)
+        
         if party == 'D':
-            if party_line_pct < 70:  # Low party loyalty
+            if partyliner_score >= 0.995:  # Use partyliner score for True Blue Democrats (99.5% threshold)
+                labels.append('True Blue Democrat')
+            elif party_line_pct < 70:  # Low party loyalty
                 if cross_party_pct > 20:  # High cross-party voting
                     labels.append('Cross-Party Democrat')  # More accurate than "Blue Dog"
                 else:
                     labels.append('Moderate Democrat')
-            elif party_line_pct > 95:  # Very high party loyalty
-                labels.append('True Blue Democrat')  # More politically relevant than "Party-Loyal Democrat"
             else:
                 labels.append('Mainstream Democrat')
                 
         elif party == 'R':
-            if party_line_pct < 70:  # Low party loyalty
+            if partyliner_score >= 0.995:  # Use partyliner score for MAGA Republicans (99.5% threshold)
+                labels.append('MAGA Republican')
+            elif party_line_pct < 70:  # Low party loyalty
                 if cross_party_pct > 20:  # High cross-party voting
                     labels.append('Cross-Party Republican')
                 else:
                     labels.append('Independent Republican')
-            elif party_line_pct > 95:  # Very high party loyalty
-                labels.append('MAGA Republican')  # More politically relevant than "Hardline Republican"
             else:
                 labels.append('Mainstream Republican')
         

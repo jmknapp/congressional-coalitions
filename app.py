@@ -30,6 +30,7 @@ from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
 import numpy as np
+from collections import defaultdict
 try:
     from sklearn.decomposition import TruncatedSVD
     from sklearn.cluster import KMeans
@@ -2521,6 +2522,14 @@ def clusters_report_page():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+@app.route('/cross-party-analysis')
+def cross_party_analysis_page():
+    """Cross-party analysis page showing coordinated cross-party votes."""
+    try:
+        return render_template('cross_party_analysis.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 @app.route('/api/clusters/report')
 def api_clusters_report():
     """Generate comprehensive report data for cluster analysis.
@@ -2584,6 +2593,154 @@ def api_clusters_report():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cross-party-analysis')
+def api_cross_party_analysis():
+    """Get votes where coordinated cross-party voting changed the outcome."""
+    try:
+        with get_db_session() as session:
+            # Get all House members
+            members = session.query(Member).filter(
+                Member.district.isnot(None)  # House members only
+            ).all()
+            
+            # Get all rollcalls for 119th Congress House
+            rollcalls = session.query(Rollcall).filter(
+                Rollcall.congress == 119,
+                Rollcall.chamber == 'house'
+            ).all()
+            
+            # Get all votes
+            rollcall_ids = [rc.rollcall_id for rc in rollcalls]
+            votes = session.query(Vote).filter(
+                Vote.rollcall_id.in_(rollcall_ids)
+            ).all()
+            
+            # Build vote matrix
+            vote_matrix = defaultdict(dict)
+            for vote in votes:
+                vote_matrix[vote.rollcall_id][vote.member_id_bioguide] = vote.vote_code
+            
+            # Build member parties lookup
+            member_parties = {member.member_id_bioguide: member.party for member in members}
+            
+            # Pre-calculate party positions for each rollcall
+            rollcall_party_positions = {}
+            for rollcall_id, rollcall_votes in vote_matrix.items():
+                party_votes = {'D': {'Yea': 0, 'Nay': 0}, 'R': {'Yea': 0, 'Nay': 0}}
+                
+                for member_id, vote_code in rollcall_votes.items():
+                    if vote_code in ['Yea', 'Nay']:
+                        party = member_parties.get(member_id)
+                        if party in ['D', 'R']:
+                            party_votes[party][vote_code] += 1
+                
+                # Determine party position for each rollcall
+                rollcall_party_positions[rollcall_id] = {}
+                for party in ['D', 'R']:
+                    if party_votes[party]['Yea'] > party_votes[party]['Nay']:
+                        rollcall_party_positions[rollcall_id][party] = 'Yea'
+                    elif party_votes[party]['Nay'] > party_votes[party]['Yea']:
+                        rollcall_party_positions[rollcall_id][party] = 'Nay'
+                    else:
+                        rollcall_party_positions[rollcall_id][party] = 'Tie'
+            
+            # Analyze coordinated votes
+            coordinated_votes = []
+            
+            for rollcall_id, rollcall_votes in vote_matrix.items():
+                # Get rollcall details
+                rollcall = next((rc for rc in rollcalls if rc.rollcall_id == rollcall_id), None)
+                if not rollcall:
+                    continue
+                
+                # Count total votes for each position
+                total_yea = sum(1 for v in rollcall_votes.values() if v == 'Yea')
+                total_nay = sum(1 for v in rollcall_votes.values() if v == 'Nay')
+                
+                # Check each party for coordinated cross-party voting
+                for party in ['D', 'R']:
+                    if rollcall_id not in rollcall_party_positions or party not in rollcall_party_positions[rollcall_id]:
+                        continue
+                        
+                    party_position = rollcall_party_positions[rollcall_id][party]
+                    if party_position == 'Tie':
+                        continue
+                    
+                    # Find all party members who voted against party position
+                    party_cross_voters = []
+                    for member_id, vote in rollcall_votes.items():
+                        if (vote in ['Yea', 'Nay'] and 
+                            member_parties.get(member_id) == party and 
+                            vote != party_position):
+                            
+                            # Get member details
+                            member = next((m for m in members if m.member_id_bioguide == member_id), None)
+                            if member:
+                                party_cross_voters.append({
+                                    'member_id': member_id,
+                                    'name': f"{member.first} {member.last}",
+                                    'state': member.state,
+                                    'district': member.district,
+                                    'vote': vote
+                                })
+                    
+                    # Check if this was coordinated and decisive
+                    if len(party_cross_voters) >= 2:  # At least 2 party members cross-voted together
+                        # Calculate what the vote would have been if all party members voted party line
+                        if party_position == 'Yea':
+                            hypothetical_yea = total_yea + len(party_cross_voters)
+                            hypothetical_nay = total_nay - len(party_cross_voters)
+                        else:  # party_position == 'Nay'
+                            hypothetical_yea = total_yea - len(party_cross_voters)
+                            hypothetical_nay = total_nay + len(party_cross_voters)
+                        
+                        # Check if the outcome would have been different
+                        current_outcome = 'Yea' if total_yea > total_nay else 'Nay'
+                        hypothetical_outcome = 'Yea' if hypothetical_yea > hypothetical_nay else 'Nay'
+                        
+                        if current_outcome != hypothetical_outcome:
+                            # Get bill information if available
+                            bill_info = None
+                            if rollcall.bill_id:
+                                bill = session.query(Bill).filter(Bill.bill_id == rollcall.bill_id).first()
+                                if bill:
+                                    bill_info = {
+                                        'bill_id': bill.bill_id,
+                                        'title': bill.title,
+                                        'type': bill.type,
+                                        'number': bill.number
+                                    }
+                            
+                            coordinated_votes.append({
+                                'rollcall_id': rollcall_id,
+                                'date': rollcall.date.isoformat() if rollcall.date else None,
+                                'question': rollcall.question,
+                                'bill_info': bill_info,
+                                'party': party,
+                                'party_position': party_position,
+                                'party_cross_voters': party_cross_voters,
+                                'total_yea': total_yea,
+                                'total_nay': total_nay,
+                                'current_outcome': current_outcome,
+                                'hypothetical_outcome': hypothetical_outcome,
+                                'margin': abs(total_yea - total_nay)
+                            })
+            
+            # Sort by date (most recent first)
+            coordinated_votes.sort(key=lambda x: x['date'] or '', reverse=True)
+            
+            return jsonify({
+                'success': True,
+                'total_coordinated_votes': len(coordinated_votes),
+                'votes': coordinated_votes
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/clusters/auto-k')
 def api_clusters_auto_k():
@@ -2736,6 +2893,112 @@ def api_clusters_auto_k():
         }})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+def generate_cluster_description(cid, size, parts, states, badge_counts, pa_pos, st_pos, top_rc, means, in_total_votes, out_total_votes):
+    """Generate nuanced cluster descriptions based on multiple factors."""
+    
+    # Calculate party composition
+    total_members = sum(parts.values())
+    dem_pct = (parts.get('D', 0) / total_members * 100) if total_members > 0 else 0
+    rep_pct = (parts.get('R', 0) / total_members * 100) if total_members > 0 else 0
+    
+    # Determine primary party
+    if dem_pct > 60:
+        party_dominant = "Democratic"
+    elif rep_pct > 60:
+        party_dominant = "Republican"
+    elif dem_pct > rep_pct:
+        party_dominant = "Democratic-leaning"
+    elif rep_pct > dem_pct:
+        party_dominant = "Republican-leaning"
+    else:
+        party_dominant = "Bipartisan"
+    
+    # Analyze caucus composition
+    caucus_indicators = []
+    if badge_counts.get('fc', 0) > 0:
+        caucus_indicators.append("Freedom Caucus")
+    if badge_counts.get('pc', 0) > 0:
+        caucus_indicators.append("Progressive")
+    if badge_counts.get('bd', 0) > 0:
+        caucus_indicators.append("Blue Dog")
+    if badge_counts.get('maga', 0) > 0:
+        caucus_indicators.append("MAGA")
+    if badge_counts.get('cbc', 0) > 0:
+        caucus_indicators.append("CBC")
+    if badge_counts.get('tb', 0) > 0:
+        caucus_indicators.append("True Blue")
+    
+    # Analyze policy areas (top 3)
+    policy_areas = [pa['name'] for pa in pa_pos[:3] if pa['score'] > 0.1]
+    
+    # Analyze subject terms (top 3)
+    subject_terms = [st['name'] for st in st_pos[:3] if st['score'] > 0.1]
+    
+    # Analyze voting behavior from anchor roll calls
+    voting_behavior = []
+    if top_rc:
+        avg_delta = sum(rc[1] for rc in top_rc[:3]) / min(3, len(top_rc))
+        if avg_delta > 0.3:
+            voting_behavior.append("highly cohesive")
+        elif avg_delta > 0.2:
+            voting_behavior.append("cohesive")
+        else:
+            voting_behavior.append("moderately cohesive")
+    
+    # Analyze geographic concentration
+    if states:
+        top_state_count = max(states.values())
+        state_concentration = top_state_count / total_members if total_members > 0 else 0
+        if state_concentration > 0.3:
+            top_states = sorted(states.items(), key=lambda x: x[1], reverse=True)[:2]
+            voting_behavior.append(f"geographically concentrated in {', '.join([s[0] for s in top_states])}")
+    
+    # Build description components
+    description_parts = []
+    
+    # Size and party
+    description_parts.append(f"{party_dominant} cluster of {size} members")
+    
+    # Caucus composition
+    if caucus_indicators:
+        if len(caucus_indicators) == 1:
+            description_parts.append(f"with {caucus_indicators[0]} representation")
+        else:
+            description_parts.append(f"with {', '.join(caucus_indicators[:2])} representation")
+    
+    # Policy focus
+    if policy_areas:
+        if len(policy_areas) == 1:
+            description_parts.append(f"focused on {policy_areas[0]}")
+        else:
+            description_parts.append(f"focused on {policy_areas[0]} and {policy_areas[1]}")
+    
+    # Subject focus (if different from policy areas)
+    if subject_terms and not any(st in ' '.join(policy_areas).lower() for st in subject_terms):
+        description_parts.append(f"with emphasis on {subject_terms[0]}")
+    
+    # Voting behavior
+    if voting_behavior:
+        description_parts.append(f"({', '.join(voting_behavior)})")
+    
+    # Combine into final description
+    description = " ".join(description_parts)
+    
+    # Ensure description isn't too long
+    if len(description) > 120:
+        # Truncate but keep it meaningful
+        words = description.split()
+        truncated = []
+        char_count = 0
+        for word in words:
+            if char_count + len(word) + 1 > 120:
+                break
+            truncated.append(word)
+            char_count += len(word) + 1
+        description = " ".join(truncated) + "..."
+    
+    return description
 
 @app.route('/api/clusters/summary')
 def api_clusters_summary():
@@ -2981,6 +3244,12 @@ def api_clusters_summary():
                 return pos, neg
             pa_pos, pa_neg = top_scores(pa_in, pa_out, in_total_votes, out_total_votes)
             st_pos, st_neg = top_scores(st_in, st_out, in_total_votes, out_total_votes)
+            
+            # Generate nuanced cluster description
+            cluster_description = generate_cluster_description(
+                cid, size, parts, states, badge_counts, pa_pos, st_pos, 
+                top_rc, means, in_total_votes, out_total_votes
+            )
             # decorate rc details
             def rc_rows(lst):
                 out = []
@@ -3029,7 +3298,8 @@ def api_clusters_summary():
                 'subject_term_neg': st_neg,
                 'exemplars': exemplars,
                 'edge_members': edges,
-                'top_states': [{'state': s, 'count': c} for s,c in top_states]
+                'top_states': [{'state': s, 'count': c} for s,c in top_states],
+                'description': cluster_description
             })
 
         return jsonify({'clusters': clusters, 'k': k})

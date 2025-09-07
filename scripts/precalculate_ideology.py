@@ -58,6 +58,7 @@ def precalculate_all_ideological_profiles(congress: int = 119, chamber: str = 'h
             'party_line_percentage': round(profile['party_line_percentage'], 1),
             'cross_party_percentage': round(profile['cross_party_percentage'], 1),
             'ideological_score': round(profile['ideological_score'], 1),
+            'partyliner_score': round(profile['partyliner_score'], 3),
             'total_votes': profile['total_votes'],
             'note': 'Based on voting patterns, not official caucus memberships'
         }

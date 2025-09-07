@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cross-Party Analysis - Congressional Coalition Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v=2024010308" rel="stylesheet">
+    <style>
+        .vote-card {
+            border-left: 4px solid #007bff;
+            transition: all 0.3s ease;
+        }
+        
+        .vote-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        
+        .vote-card.democratic {
+            border-left-color: #0066cc;
+        }
+        
+        .vote-card.republican {
+            border-left-color: #cc0000;
+        }
+        
+        .outcome-badge {
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+        }
+        
+        .member-badge {
+            display: inline-block;
+            margin: 0.2rem;
+            padding: 0.3rem 0.6rem;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            font-size: 0.85rem;
+        }
+        
+        .member-badge a {
+            color: #495057;
+            text-decoration: none;
+        }
+        
+        .member-badge a:hover {
+            color: #007bff;
+            text-decoration: underline;
+        }
+        
+        .vote-yea {
+            color: #28a745 !important;
+            font-weight: bold;
+            background-color: rgba(40, 167, 69, 0.1);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+        }
+        
+        .vote-nay {
+            color: #dc3545 !important;
+            font-weight: bold;
+            background-color: rgba(220, 53, 69, 0.1);
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .stats-card .card-body {
+            padding: 1.5rem;
+        }
+        
+        .stats-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+        }
+        
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                119th Congress Analysis, House of Representatives
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/clusters">
+                    <i class="fas fa-project-diagram me-1"></i>Cluster Analysis
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-handshake me-2"></i>Cross-Party Analysis</h1>
+                <p class="text-muted">Votes where coordinated cross-party voting changed the outcome</p>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading-spinner">
+            <div class="text-center">
+                <i class="fas fa-spinner fa-spin fa-2x text-primary"></i>
+                <p class="mt-2">Analyzing cross-party voting patterns...</p>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="alert alert-danger" style="display: none;">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span id="error-message"></span>
+        </div>
+
+        <!-- Content -->
+        <div id="content" style="display: none;">
+            <!-- Summary Statistics -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <div class="stats-number" id="total-votes">-</div>
+                            <div>Coordinated Votes</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <div class="stats-number" id="democratic-votes">-</div>
+                            <div>Democratic Cross-Party</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card stats-card">
+                        <div class="card-body text-center">
+                            <div class="stats-number" id="republican-votes">-</div>
+                            <div>Republican Cross-Party</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Explanation -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <h5><i class="fas fa-info-circle me-2"></i>About This Analysis</h5>
+                        <p class="mb-0">
+                            This page shows votes where multiple members of the same party voted together against their party's position, 
+                            and this coordinated cross-party voting would have changed the outcome if they had voted party-line instead. 
+                            This filters out symbolic individual cross-party votes that party leadership sometimes allows on non-decisive issues.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Votes List -->
+            <div class="row">
+                <div class="col-12">
+                    <h3>Coordinated Cross-Party Votes</h3>
+                    <div id="votes-container">
+                        <!-- Votes will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Load cross-party analysis data
+        async function loadCrossPartyAnalysis() {
+            try {
+                const response = await fetch('/api/cross-party-analysis');
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    displayCrossPartyAnalysis(data);
+                } else {
+                    showError(data.error || 'Failed to load cross-party analysis data');
+                }
+            } catch (error) {
+                showError('Error loading cross-party analysis: ' + error.message);
+            }
+        }
+        
+        function displayCrossPartyAnalysis(data) {
+            const votes = data.votes;
+            
+            // Update summary statistics
+            document.getElementById('total-votes').textContent = data.total_coordinated_votes;
+            
+            const democraticVotes = votes.filter(v => v.party === 'D').length;
+            const republicanVotes = votes.filter(v => v.party === 'R').length;
+            
+            document.getElementById('democratic-votes').textContent = democraticVotes;
+            document.getElementById('republican-votes').textContent = republicanVotes;
+            
+            // Display votes
+            const container = document.getElementById('votes-container');
+            container.innerHTML = '';
+            
+            if (votes.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-warning text-center">
+                        <i class="fas fa-info-circle fa-2x mb-3"></i>
+                        <h5>No Coordinated Cross-Party Votes Found</h5>
+                        <p class="mb-0">No votes were found where coordinated cross-party voting changed the outcome.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            votes.forEach((vote, index) => {
+                const voteCard = createVoteCard(vote, index);
+                container.appendChild(voteCard);
+            });
+            
+            // Show content
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        }
+        
+        function createVoteCard(vote, index) {
+            const card = document.createElement('div');
+            card.className = `card vote-card mb-4 ${vote.party === 'D' ? 'democratic' : 'republican'}`;
+            
+            const date = vote.date ? new Date(vote.date).toLocaleDateString() : 'Unknown Date';
+            const partyColor = vote.party === 'D' ? '#0066cc' : '#cc0000';
+            const partyName = vote.party === 'D' ? 'Democratic' : 'Republican';
+            
+            // Debug logging
+            console.log('Vote data:', vote);
+            console.log('Total Yea:', vote.total_yea, 'Total Nay:', vote.total_nay);
+            console.log('Type of total_yea:', typeof vote.total_yea);
+            console.log('Type of total_nay:', typeof vote.total_nay);
+            
+            // Create bill display
+            let billDisplay = '';
+            if (vote.bill_info) {
+                const billType = vote.bill_info.type === 'HR' ? 'H.R.' : vote.bill_info.type === 'S' ? 'S.' : vote.bill_info.type;
+                billDisplay = `
+                    <div class="mb-2">
+                        <strong><a href="/bill/${vote.bill_info.bill_id}" target="_blank" rel="noopener noreferrer">
+                            ${billType} ${vote.bill_info.number}
+                        </a></strong>
+                        ${vote.bill_info.title ? `<div class="text-muted small">${vote.bill_info.title.substring(0, 100)}${vote.bill_info.title.length > 100 ? '...' : ''}</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            // Create cross-voters display
+            const crossVotersHtml = vote.party_cross_voters.map(member => {
+                const voteClass = member.vote === 'Yea' ? 'vote-yea' : 'vote-nay';
+                return `
+                    <span class="member-badge">
+                        <a href="/member/${member.member_id}" target="_blank" rel="noopener noreferrer">
+                            ${member.name} (${member.state}-${member.district})
+                        </a>
+                        <span class="${voteClass} ms-1">${member.vote}</span>
+                    </span>
+                `;
+            }).join('');
+            
+            card.innerHTML = 
+                '<div class="card-body">' +
+                    '<div class="row">' +
+                        '<div class="col-md-8">' +
+                            '<div class="d-flex align-items-center mb-2">' +
+                                '<h5 class="mb-0 me-3">' + vote.rollcall_id + '</h5>' +
+                                '<span class="badge bg-secondary">' + date + '</span>' +
+                            '</div>' +
+                            billDisplay +
+                            '<div class="mb-3">' +
+                                '<strong>Question:</strong> ' + (vote.question || 'No question available') +
+                            '</div>' +
+                            '<div class="mb-3">' +
+                                '<strong>' + partyName + ' Party Position:</strong> ' +
+                                '<span class="badge ' + (vote.party_position === 'Yea' ? 'bg-success' : 'bg-danger') + '">' +
+                                    vote.party_position +
+                                '</span>' +
+                            '</div>' +
+                            '<div class="mb-3">' +
+                                '<strong>Cross-Party Voters (' + vote.party_cross_voters.length + '):</strong>' +
+                                '<div class="mt-2">' +
+                                    crossVotersHtml +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="col-md-4">' +
+                            '<div class="text-center">' +
+                                '<h6 class="text-muted mb-3">Vote Outcome</h6>' +
+                                '<div class="mb-3">' +
+                                    '<div class="outcome-badge badge ' + (vote.current_outcome === 'Yea' ? 'bg-success' : 'bg-danger') + '">' +
+                                        '<i class="fas fa-check me-1"></i>' +
+                                        'Actual: ' + vote.current_outcome +
+                                    '</div>' +
+                                '</div>' +
+                                '<div class="mb-3">' +
+                                    '<div class="outcome-badge badge bg-secondary">' +
+                                        '<i class="fas fa-question me-1"></i>' +
+                                        'If Party-Line: ' + vote.hypothetical_outcome +
+                                    '</div>' +
+                                '</div>' +
+                                '<div class="mb-3">' +
+                                    '<strong>Final Tally:</strong><br>' +
+                                    '<span class="vote-yea">' + (vote.total_yea || 0) + ' Yea</span> | ' +
+                                    '<span class="vote-nay">' + (vote.total_nay || 0) + ' Nay</span>' +
+                                '</div>' +
+                                '<div class="mb-3">' +
+                                    '<strong>Margin:</strong> ' + vote.margin + ' votes' +
+                                '</div>' +
+                                '<a href="/vote/' + vote.rollcall_id + '" target="_blank" rel="noopener noreferrer" class="btn btn-outline-primary btn-sm">' +
+                                    '<i class="fas fa-eye me-1"></i>View Full Vote' +
+                                '</a>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            
+            return card;
+        }
+        
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error').style.display = 'block';
+        }
+        
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', loadCrossPartyAnalysis);
+    </script>
+</body>
+</html>
