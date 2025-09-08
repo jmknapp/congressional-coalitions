@@ -112,6 +112,16 @@
                         <i class="fas fa-heart me-1"></i>True Blue Democrat
                     </span>
                 </a>
+                <a id="hispanic-caucus-link" href="/caucus/7" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge text-white me-2" style="background-color: #2e7d32;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Hispanic Caucus information">
+                        <i class="fas fa-flag me-1"></i>CHC
+                    </span>
+                </a>
+                <a id="new-democrat-coalition-link" href="/caucus/8" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="display: none;">
+                    <span class="badge text-white me-2" style="background-color: #1976d2;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view New Democrat Coalition information">
+                        <i class="fas fa-chart-line me-1"></i>NDC
+                    </span>
+                </a>
                                     </div>
                                     <p id="member-details" class="text-muted mb-0"></p>
                                 </div>
@@ -466,6 +476,22 @@
                 trueBlueDemocratLink.style.display = 'inline-block';
             } else {
                 trueBlueDemocratLink.style.display = 'none';
+            }
+            
+            // Congressional Hispanic Caucus badge
+            const hispanicCaucusLink = document.getElementById('hispanic-caucus-link');
+            if (member.is_hispanic_caucus) {
+                hispanicCaucusLink.style.display = 'inline-block';
+            } else {
+                hispanicCaucusLink.style.display = 'none';
+            }
+            
+            // New Democrat Coalition badge
+            const newDemocratCoalitionLink = document.getElementById('new-democrat-coalition-link');
+            if (member.is_new_democrat_coalition) {
+                newDemocratCoalitionLink.style.display = 'inline-block';
+            } else {
+                newDemocratCoalitionLink.style.display = 'none';
             }
             
             // Initialize tooltips for caucus badges

@@ -112,6 +112,10 @@ function displayMembers(members) {
             '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
         const trueBlueDemocratsBadge = member.is_true_blue_democrat ? 
             '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information"><i class="fas fa-heart me-1"></i>TB</span></a>' : '';
+        const hispanicCaucusBadge = member.is_hispanic_caucus ? 
+            '<a href="/caucus/7" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #2e7d32;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Hispanic Caucus information"><i class="fas fa-flag me-1"></i>CHC</span></a>' : '';
+        const newDemocratCoalitionBadge = member.is_new_democrat_coalition ? 
+            '<a href="/caucus/8" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1976d2;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view New Democrat Coalition information"><i class="fas fa-chart-line me-1"></i>NDC</span></a>' : '';
 
         row.innerHTML = `
             <td>
@@ -128,6 +132,8 @@ function displayMembers(members) {
                 ${magaRepublicanBadge}
                 ${congressionalBlackCaucusBadge}
                 ${trueBlueDemocratsBadge}
+                ${hispanicCaucusBadge}
+                ${newDemocratCoalitionBadge}
             </td>
             <td><span class="party-badge party-${member.party.toLowerCase()}">${member.party}</span></td>
             <td>${member.state}</td>
@@ -400,8 +406,12 @@ async function loadCrossPartyVoters() {
                     '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Black Caucus information"><i class="fas fa-users me-1"></i>CBC</span></a>' : '';
                 const trueBlueBadge = member.is_true_blue_democrat ? 
                     '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view True Blue Democrats information"><i class="fas fa-heart me-1"></i>TB</span></a>' : '';
+                const hispanicCaucusBadge = member.is_hispanic_caucus ? 
+                    '<a href="/caucus/7" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #2e7d32;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Congressional Hispanic Caucus information"><i class="fas fa-flag me-1"></i>CHC</span></a>' : '';
+                const newDemocratCoalitionBadge = member.is_new_democrat_coalition ? 
+                    '<a href="/caucus/8" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white ms-2" style="background-color: #1976d2;" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view New Democrat Coalition information"><i class="fas fa-chart-line me-1"></i>NDC</span></a>' : '';
                 
-                badges = freedomCaucusBadge + progressiveCaucusBadge + blueDogBadge + magaBadge + congressionalBlackCaucusBadge + trueBlueBadge;
+                badges = freedomCaucusBadge + progressiveCaucusBadge + blueDogBadge + magaBadge + congressionalBlackCaucusBadge + trueBlueBadge + hispanicCaucusBadge + newDemocratCoalitionBadge;
             }
             
             const row = document.createElement('tr');

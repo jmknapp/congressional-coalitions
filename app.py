@@ -88,10 +88,26 @@ def load_caucus_data():
             ).all()
             caucus_data['true_blue_democrats'] = {m.member_id_bioguide for m in true_blue_democrats_members}
             
+            # Load Congressional Hispanic Caucus from database
+            hispanic_caucus_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'CHC',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['congressional_hispanic_caucus'] = {m.member_id_bioguide for m in hispanic_caucus_members}
+            
+            # Load New Democrat Coalition from database
+            ndc_members = session.query(CaucusMembership).join(Caucus).filter(
+                Caucus.short_name == 'NDC',
+                CaucusMembership.end_date.is_(None)
+            ).all()
+            caucus_data['new_democrat_coalition'] = {m.member_id_bioguide for m in ndc_members}
+            
             print(f"DEBUG: Loaded CBC data with {len(caucus_data['congressional_black_caucus'])} members")
             print(f"DEBUG: CBC members: {sorted(list(caucus_data['congressional_black_caucus']))}")
             print(f"DEBUG: Loaded MAGA data with {len(caucus_data['maga_republicans'])} members")
             print(f"DEBUG: MAGA members: {sorted(list(caucus_data['maga_republicans']))}")
+            print(f"DEBUG: Loaded CHC data with {len(caucus_data['congressional_hispanic_caucus'])} members")
+            print(f"DEBUG: Loaded NDC data with {len(caucus_data['new_democrat_coalition'])} members")
             print(f"DEBUG: load_caucus_data() returning CBC set: {caucus_data['congressional_black_caucus']}")
             
     except Exception as e:
@@ -103,7 +119,9 @@ def load_caucus_data():
             'blue_dog_coalition': set(),
             'congressional_black_caucus': set(),
             'maga_republicans': set(),
-            'true_blue_democrats': set()
+            'true_blue_democrats': set(),
+            'congressional_hispanic_caucus': set(),
+            'new_democrat_coalition': set()
         }
     
     return caucus_data
@@ -502,6 +520,8 @@ def get_members():
                 is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
                 is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
                 is_true_blue_democrat = member.member_id_bioguide in caucus_data['true_blue_democrats']
+                is_hispanic_caucus = member.member_id_bioguide in caucus_data['congressional_hispanic_caucus']
+                is_new_democrat_coalition = member.member_id_bioguide in caucus_data['new_democrat_coalition']
                 
                 # Debug logging for Kaptur
                 if member.first == 'Marcy' and member.last == 'Kaptur':
@@ -524,7 +544,9 @@ def get_members():
                     'is_blue_dog_coalition': is_blue_dog_coalition,
                     'is_maga_republican': is_maga_republican,
                     'is_congressional_black_caucus': is_congressional_black_caucus,
-                    'is_true_blue_democrat': is_true_blue_democrat
+                    'is_true_blue_democrat': is_true_blue_democrat,
+                    'is_hispanic_caucus': is_hispanic_caucus,
+                    'is_new_democrat_coalition': is_new_democrat_coalition
                 })
             
             # Sort members by last name, then first name (ignoring accents)
@@ -1507,6 +1529,9 @@ def get_member_details(bioguide_id):
             is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
             is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
             is_true_blue_democrat = member.member_id_bioguide in caucus_data['true_blue_democrats']
+            is_hispanic_caucus = member.member_id_bioguide in caucus_data['congressional_hispanic_caucus']
+            is_new_democrat_coalition = member.member_id_bioguide in caucus_data['new_democrat_coalition']
+            
             
             return jsonify({
                 'member': {
@@ -1525,6 +1550,8 @@ def get_member_details(bioguide_id):
                     'is_maga_republican': is_maga_republican,
                     'is_congressional_black_caucus': is_congressional_black_caucus,
                     'is_true_blue_democrat': is_true_blue_democrat,
+                    'is_hispanic_caucus': is_hispanic_caucus,
+                    'is_new_democrat_coalition': is_new_democrat_coalition,
                     # Contact information
                     'email': member.email,
                     'phone': member.phone,
@@ -1730,6 +1757,54 @@ def get_caucus(caucus_id):
                 'icon': caucus.icon,
                 'member_count': member_count
             })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/caucuses', methods=['POST'])
+def create_caucus():
+    """Create a new caucus."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name') or not data.get('short_name'):
+            return jsonify({'error': 'Name and short_name are required'}), 400
+        
+        with get_db_session() as session:
+            # Check if caucus with same name or short_name already exists
+            existing_caucus = session.query(Caucus).filter(
+                or_(
+                    Caucus.name == data['name'],
+                    Caucus.short_name == data['short_name']
+                )
+            ).first()
+            
+            if existing_caucus:
+                return jsonify({'error': 'A caucus with this name or short name already exists'}), 400
+            
+            # Create new caucus
+            caucus = Caucus(
+                name=data['name'],
+                short_name=data['short_name'],
+                description=data.get('description', ''),
+                color=data.get('color', '#6c757d'),
+                icon=data.get('icon', 'fas fa-users'),
+                is_active=data.get('is_active', True)
+            )
+            
+            session.add(caucus)
+            session.commit()
+            
+            return jsonify({
+                'id': caucus.id,
+                'name': caucus.name,
+                'short_name': caucus.short_name,
+                'description': caucus.description,
+                'color': caucus.color,
+                'icon': caucus.icon,
+                'member_count': 0
+            }), 201
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -3131,6 +3206,10 @@ def generate_cluster_description(cid, size, parts, states, badge_counts, pa_pos,
         caucus_indicators.append("CBC")
     if badge_counts.get('tb', 0) > 0:
         caucus_indicators.append("True Blue")
+    if badge_counts.get('chc', 0) > 0:
+        caucus_indicators.append("CHC")
+    if badge_counts.get('ndc', 0) > 0:
+        caucus_indicators.append("NDC")
     
     # Analyze policy areas (top 3)
     policy_areas = [pa['name'] for pa in pa_pos[:3] if pa['score'] > 0.1]
@@ -3364,7 +3443,7 @@ def api_clusters_summary():
             size = len(idx)
             parts = {'D': 0, 'R': 0, 'other': 0}
             states = {}
-            badge_counts = {'fc':0,'pc':0,'bd':0,'maga':0,'cbc':0,'tb':0}
+            badge_counts = {'fc':0,'pc':0,'bd':0,'maga':0,'cbc':0,'tb':0,'chc':0,'ndc':0}
             for i in idx:
                 mid = kept_member_ids[i]
                 p = (mem_meta.get(mid, {}).get('party') or '')
@@ -3380,6 +3459,8 @@ def api_clusters_summary():
                 if mid in caucus_data.get('maga_republicans', set()): badge_counts['maga'] += 1
                 if mid in caucus_data.get('congressional_black_caucus', set()): badge_counts['cbc'] += 1
                 if mid in caucus_data.get('true_blue_democrats', set()): badge_counts['tb'] += 1
+                if mid in caucus_data.get('congressional_hispanic_caucus', set()): badge_counts['chc'] += 1
+                if mid in caucus_data.get('new_democrat_coalition', set()): badge_counts['ndc'] += 1
 
             # SVD means (first 3 components if available)
             Zc = Z[idx]

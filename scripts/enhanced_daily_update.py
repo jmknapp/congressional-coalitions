@@ -13,6 +13,8 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional
 import hashlib
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -22,7 +24,7 @@ from sqlalchemy import text, or_, and_
 
 # Add scripts to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__)))
-from setup_db import BillSubject
+from setup_db import Bill, BillSubject, Member
 
 # Configure logging
 logging.basicConfig(
@@ -40,42 +42,281 @@ class EnhancedDailySponsorsCosponsorsUpdater:
         self.session.headers.update({
             'User-Agent': 'Congressional-Coalitions/1.0 (https://github.com/jmknapp/congressional-coalitions)'
         })
+        # Robust retry/backoff for transient errors and timeouts
+        retries = Retry(
+            total=4,
+            connect=4,
+            read=4,
+            backoff_factor=1.0,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
     
-    def get_bills_to_update_enhanced(self, congress: int = 119, max_bills: int = 100) -> List[str]:
-        """Get bills using simple sequential processing with last_updated tracking."""
+    def get_bills_to_update_enhanced(self, congress: int = 119, max_bills: int = 100, days_back: int = 7) -> List[str]:
+        """Prioritize recently introduced 'stub' bills, then fall back to stale items."""
         
         with get_db_session() as session:
-            # Simple approach: get bills that need updates, ordered by bill_id
-            # This ensures we process bills in a consistent order and pick up where we left off
-            bills_to_update = session.execute(text("""
+            selected: List[str] = []
+
+            # 1) Recent 'stubs' (missing key fields) in the last N days
+            recent_stubs = session.execute(text("""
                 SELECT bill_id FROM bills 
                 WHERE congress = :congress 
-                AND chamber = 'house'
-                AND (policy_area IS NULL OR sponsor_bioguide IS NULL OR last_updated IS NULL OR last_updated < DATE_SUB(NOW(), INTERVAL 7 DAY))
-                ORDER BY bill_id ASC
+                  AND (
+                        title IS NULL OR title = ''
+                     OR policy_area IS NULL
+                     OR sponsor_bioguide IS NULL
+                  )
+                  AND (
+                        introduced_date IS NULL
+                     OR introduced_date >= DATE_SUB(CURDATE(), INTERVAL :days_back DAY)
+                  )
+                ORDER BY (introduced_date IS NULL) ASC, introduced_date DESC
                 LIMIT :limit
             """), {
                 'congress': congress,
+                'days_back': days_back,
                 'limit': max_bills
             }).fetchall()
             
-            bill_ids = [bill.bill_id for bill in bills_to_update]
-            logger.info(f"Selected {len(bill_ids)} bills for update (bills needing updates or stale data)")
+            selected.extend([r.bill_id for r in recent_stubs])
+
+            # 2) If room remains, include other missing/stale items
+            remaining = max_bills - len(selected)
+            if remaining > 0:
+                stale_or_missing = session.execute(text("""
+                    SELECT bill_id FROM bills
+                    WHERE congress = :congress
+                      AND (
+                            title IS NULL OR title = ''
+                         OR policy_area IS NULL
+                         OR sponsor_bioguide IS NULL
+                         OR updated_at IS NULL
+                         OR updated_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+                      )
+                    ORDER BY updated_at IS NULL DESC, updated_at ASC, bill_id ASC
+                    LIMIT :limit
+                """), {
+                    'congress': congress,
+                    'limit': remaining
+                }).fetchall()
+
+                for r in stale_or_missing:
+                    if r.bill_id not in selected:
+                        selected.append(r.bill_id)
+
+            logger.info(f"Selected {len(selected)} bills for update (recent stubs first, then stale/missing)")
+            return selected
+    
+    def discover_new_bills(self, congress: int = 119, days_back: int = 7) -> List[str]:
+        """Discover new bills introduced in the last N days."""
+        logger.info(f"Discovering new bills for Congress {congress} (last {days_back} days)")
+        
+        cutoff_date = date.today() - timedelta(days=days_back)
+        new_bill_ids = []
+        
+        # Get existing bill IDs to avoid duplicates
+        with get_db_session() as session:
+            existing_bills = {bill.bill_id for bill in session.query(Bill).filter(
+                Bill.congress == congress
+            ).all()}  # Remove chamber filter to include all bills
+        
+        logger.info(f"Found {len(existing_bills)} existing bills in database")
+        
+        # Base URL for Congress.gov bills API
+        base_url = f"https://api.congress.gov/v3/bill"
+        headers = {'X-API-Key': self.congressgov_api_key}
+        
+        # Check all bill types (House and Senate), but limit to avoid processing too many
+        bill_types = ['hr', 'hconres', 'hjres', 'hres', 's', 'sconres', 'sjres', 'sres']
+        max_new_bills = 50  # Limit to avoid processing too many bills
+        
+        for bill_type in bill_types:
+            if len(new_bill_ids) >= max_new_bills:
+                logger.info(f"Reached limit of {max_new_bills} new bills, stopping discovery")
+                break
+                
+            logger.info(f"Checking for new {bill_type} bills...")
             
-            return bill_ids
+            # Paginate through results using offset until cap reached
+            offset = 0
+            # Smaller pages for heavy resolution streams
+            page_limit = 50 if bill_type in ['hres', 'sres'] else 100
+            max_pages_per_type = 5  # hard cap per type to avoid long scans
+            pages_scanned = 0
+            consecutive_no_new = 0
+            while len(new_bill_ids) < max_new_bills and pages_scanned < max_pages_per_type:
+                # Use path parameters to strictly scope to the requested congress and bill type
+                url_type = f"{base_url}/{congress}/{bill_type}"
+                params = {
+                    'format': 'json',
+                    'limit': page_limit,
+                    'offset': offset,
+                    # Prefer most-recent pages first
+                    'sort': 'updateDate',
+                    'sortOrder': 'desc'
+                }
+                try:
+                    response = self.session.get(url_type, headers=headers, params=params, timeout=20)
+                    logger.info(f"API response status: {response.status_code} (type={bill_type}, offset={offset})")
+                    if response.status_code != 200:
+                        logger.error(f"API error: {response.status_code} - {response.text}")
+                        break
+
+                    data = response.json()
+                    bills_list = data.get('bills', []) or []
+                    logger.info(f"API returned {len(bills_list)} bills for {bill_type} (offset={offset})")
+                    if offset == 0 and bills_list:
+                        sample = bills_list[0]
+                        logger.info(f"First bill structure: {list(sample.keys())}")
+                        logger.info(f"Sample bill (congress={sample.get('congress')}): {sample}")
+
+                    if not bills_list:
+                        break
+
+                    added_this_page = 0
+                    all_older_than_cutoff = True
+                    for bill_data in bills_list:
+                        congress_num = bill_data.get('congress')
+                        resp_bill_type = bill_data.get('type', '')
+                        bt = resp_bill_type.lower() if isinstance(resp_bill_type, str) else ''
+                        bill_number = bill_data.get('number')
+                        # Parse updateDate for recency gating
+                        upd_str = bill_data.get('updateDate')
+                        try:
+                            upd_dt = datetime.strptime(upd_str, '%Y-%m-%d').date() if upd_str else None
+                        except Exception:
+                            upd_dt = None
+
+                        # Filter strictly to requested congress
+                        if congress_num and int(congress_num) != int(congress):
+                            continue
+
+                        if upd_dt and upd_dt >= cutoff_date:
+                            all_older_than_cutoff = False
+
+                        if congress_num and bt and bill_number:
+                            our_bill_id = f"{bt}-{bill_number}-{congress_num}"
+                            if our_bill_id not in existing_bills and our_bill_id not in new_bill_ids:
+                                new_bill_ids.append(our_bill_id)
+                                added_this_page += 1
+                                if len(new_bill_ids) >= max_new_bills:
+                                    break
+                        else:
+                            pass  # Skip invalid bill data silently
+
+                    # Advance offset
+                    offset += page_limit
+                    pages_scanned += 1
+                    consecutive_no_new = 0 if added_this_page > 0 else consecutive_no_new + 1
+                    # If everything on this page is older than cutoff, count as no-new page
+                    if all_older_than_cutoff:
+                        consecutive_no_new += 1
+                    # If several pages in a row add nothing, stop scanning this type
+                    if consecutive_no_new >= 2:
+                        logger.info(f"No new bills found in last {consecutive_no_new} pages for {bill_type}; moving on")
+                        break
+                    # Small delay to be kind to API
+                    time.sleep(0.5)
+
+                    if len(new_bill_ids) >= max_new_bills:
+                        break
+                except requests.exceptions.ReadTimeout:
+                    logger.warning(f"Read timeout for {bill_type} at offset {offset}; retrying next page")
+                    # Advance to next page to avoid sticky page
+                    offset += page_limit
+                    pages_scanned += 1
+                    time.sleep(1.0)
+                    continue
+                except Exception as e:
+                    logger.error(f"Error checking {bill_type} bills: {e}")
+                    # On unexpected errors, move to next bill type
+                    break
+        
+        logger.info(f"Discovered {len(new_bill_ids)} new bills")
+        return new_bill_ids
+
+    def add_new_bills_to_database(self, bill_ids: List[str], congress: int) -> int:
+        """Add new bills to the database."""
+        added_count = 0
+        
+        for bill_id in bill_ids:
+            try:
+                # Fetch bill data from Congress.gov
+                bill_data = self.fetch_bill_from_congressgov(bill_id)
+                
+                if bill_data and bill_data != "RATE_LIMIT":
+                    # Add to database
+                    with get_db_session() as session:
+                        # Check if bill already exists (race condition protection)
+                        existing = session.query(Bill).filter(Bill.bill_id == bill_id).first()
+                        if not existing:
+                            # Extract fields from bill_id and full API payload
+                            parts = bill_id.split('-')
+                            bill_number = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else None
+                            bill_type_from_id = parts[0] if parts else ''
+                            chamber = 'house' if bill_type_from_id.startswith('h') else 'senate'
+
+                            bill_info = bill_data.get('bill', {}) if isinstance(bill_data, dict) else {}
+                            title = bill_info.get('title') or bill_data.get('title', '')
+                            introduced_raw = bill_info.get('introducedDate') or bill_data.get('introducedDate')
+                            introduced_date = datetime.strptime(introduced_raw, '%Y-%m-%d').date() if introduced_raw else None
+                            sponsors = bill_info.get('sponsors') or bill_data.get('sponsors') or []
+                            sponsor_bioguide = sponsors[0].get('bioguideId') if sponsors else None
+                            # Ensure FK safety: only set sponsor if present in members
+                            if sponsor_bioguide:
+                                sponsor_exists = session.query(Member).filter(Member.member_id_bioguide == sponsor_bioguide).first()
+                                if not sponsor_exists:
+                                    sponsor_bioguide = None
+                            policy_area_name = None
+                            if isinstance(bill_info.get('policyArea'), dict):
+                                policy_area_name = bill_info['policyArea'].get('name')
+
+                            bill = Bill(
+                                bill_id=bill_id,
+                                congress=congress,
+                                chamber=chamber,
+                                title=title,
+                                type=bill_type_from_id,
+                                number=bill_number,
+                                introduced_date=introduced_date,
+                                sponsor_bioguide=sponsor_bioguide,
+                                policy_area=policy_area_name,
+                                updated_at=datetime.now()
+                            )
+                            session.add(bill)
+                            session.commit()
+                            added_count += 1
+                            logger.info(f"Added new bill: {bill_id} ({title[:80]})")
+                        else:
+                            # Quiet duplicate message to reduce noise
+                            pass
+                
+                # Rate limiting
+                time.sleep(2)
+                
+            except Exception as e:
+                logger.error(f"Error adding bill {bill_id}: {e}")
+                continue
+        
+        return added_count
     
     def update_bill_last_updated(self, bill_id: str):
-        """Update the last_updated timestamp for a bill."""
+        """Update the updated_at timestamp for a bill."""
         try:
             with get_db_session() as session:
                 session.execute(text("""
                     UPDATE bills 
-                    SET last_updated = NOW() 
+                    SET updated_at = NOW() 
                     WHERE bill_id = :bill_id
                 """), {'bill_id': bill_id})
                 session.commit()
         except Exception as e:
-            logger.error(f"Failed to update last_updated for {bill_id}: {e}")
+            logger.error(f"Failed to update updated_at for {bill_id}: {e}")
     
     def fetch_bill_from_congressgov(self, bill_id: str) -> Optional[Dict]:
         """Fetch bill data from Congress.gov API."""
@@ -134,7 +375,6 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                     for subject in data['subjects']['legislativeSubjects']:
                         if 'name' in subject:
                             subjects.append(subject['name'])
-                logger.debug(f"Found {len(subjects)} subjects for {congressgov_id}")
             else:
                 logger.debug(f"Failed to fetch subjects for {congressgov_id}: {response.status_code}")
         except Exception as e:
@@ -160,7 +400,6 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                             'text': action.get('text', ''),
                             'committee_code': action.get('committee', {}).get('systemCode', '') if action.get('committee') else None
                         })
-                logger.debug(f"Found {len(actions)} actions for {congressgov_id}")
             else:
                 logger.debug(f"Failed to fetch actions for {congressgov_id}: {response.status_code}")
         except Exception as e:
@@ -194,9 +433,48 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             return 'OTHER'
     
     def update_bill_data(self, bill_id: str, bill_data: Dict) -> bool:
-        """Update bill sponsor, cosponsors, policy area, and subjects data."""
+        """Update bill sponsor, cosponsors, policy area, subjects data, and core fields for stubs."""
         try:
             with get_db_session() as session:
+                # First, check if this is a stub bill that needs core field backfill
+                bill_info = bill_data.get('bill', {}) if isinstance(bill_data, dict) else {}
+                core_fields_updated = False
+                
+                # Check if we have core field data to backfill
+                title = bill_info.get('title') or bill_data.get('title', '')
+                introduced_raw = bill_info.get('introducedDate') or bill_data.get('introducedDate')
+                introduced_date = datetime.strptime(introduced_raw, '%Y-%m-%d').date() if introduced_raw else None
+                
+                if title or introduced_date:
+                    # Extract bill type and number from bill_id
+                    parts = bill_id.split('-')
+                    bill_type_from_id = parts[0] if parts else ''
+                    bill_number = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else None
+                    
+                    # Update core fields if they're missing
+                    update_fields = {}
+                    if title:
+                        update_fields['title'] = title
+                    if bill_type_from_id:
+                        update_fields['type'] = bill_type_from_id
+                    if bill_number:
+                        update_fields['number'] = bill_number
+                    if introduced_date:
+                        update_fields['introduced_date'] = introduced_date
+                    
+                    if update_fields:
+                        set_clause = ', '.join([f"{field} = :{field}" for field in update_fields.keys()])
+                        params = {'bill_id': bill_id}
+                        params.update(update_fields)
+                        
+                        session.execute(text(f"""
+                            UPDATE bills 
+                            SET {set_clause}
+                            WHERE bill_id = :bill_id
+                        """), params)
+                        core_fields_updated = True
+                        logger.info(f"Backfilled core fields for {bill_id}: {', '.join(update_fields.keys())}")
+                
                 # Update sponsor if available
                 sponsor_updated = False
                 if 'sponsors' in bill_data.get('bill', {}):
@@ -228,7 +506,6 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                             'bill_id': bill_id
                         })
                         policy_area_updated = True
-                        logger.debug(f"Updated policy area for {bill_id}: {policy_area}")
                 
                 # Update subjects if available
                 subjects_updated = False
@@ -249,7 +526,6 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                             session.add(bill_subject)
                         
                         subjects_updated = True
-                        logger.debug(f"Updated {len(subjects)} subjects for {bill_id}")
                 
                 # Update actions if available
                 actions_updated = False
@@ -275,12 +551,11 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                             })
                         
                         actions_updated = True
-                        logger.debug(f"Updated {len(actions)} actions for {bill_id}")
                 
-                # Update last_updated timestamp
+                # Update updated_at timestamp
                 session.execute(text("""
                     UPDATE bills 
-                    SET last_updated = NOW() 
+                    SET updated_at = NOW() 
                     WHERE bill_id = :bill_id
                 """), {'bill_id': bill_id})
                 
@@ -288,6 +563,8 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                 
                 # Log what was updated
                 updates = []
+                if core_fields_updated:
+                    updates.append("core_fields")
                 if sponsor_updated:
                     updates.append("sponsor")
                 if policy_area_updated:
@@ -306,12 +583,19 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             logger.error(f"Failed to update bill data for {bill_id}: {e}")
             return False
     
-    def enhanced_daily_update(self, congress: int = 119, max_bills: int = 100):
+    def enhanced_daily_update(self, congress: int = 119, max_bills: int = 100, days_back: int = 7):
         """Run enhanced daily update with better bill distribution."""
         logger.info(f"Starting enhanced daily update for Congress {congress}")
         
-        # Get bills to update using enhanced selection
-        bills_to_update = self.get_bills_to_update_enhanced(congress, max_bills)
+        # Step 1: Discover and add new bills
+        new_bills_added = 0
+        new_bill_ids = self.discover_new_bills(congress, days_back=days_back)
+        if new_bill_ids:
+            new_bills_added = self.add_new_bills_to_database(new_bill_ids, congress)
+            logger.info(f"Added {new_bills_added} new bills to database")
+        
+        # Step 2: Get bills to update using enhanced selection
+        bills_to_update = self.get_bills_to_update_enhanced(congress, max_bills, days_back)
         
         if not bills_to_update:
             logger.info("No bills to update")
@@ -342,8 +626,10 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             time.sleep(2)
         
         logger.info(f"Enhanced daily update completed:")
-        logger.info(f"  - Bills processed: {len(bills_to_update)}")
-        logger.info(f"  - Bills updated: {updated_count}")
+        logger.info(f"  - New bills discovered: {len(new_bill_ids)}")
+        logger.info(f"  - New bills added: {new_bills_added}")
+        logger.info(f"  - Existing bills processed: {len(bills_to_update)}")
+        logger.info(f"  - Existing bills updated: {updated_count}")
         logger.info(f"  - Rate limit hit: {rate_limit_hit}")
         
         return not rate_limit_hit
@@ -355,6 +641,7 @@ def main():
     parser = argparse.ArgumentParser(description='Enhanced daily update with better bill distribution')
     parser.add_argument('--congress', type=int, default=119, help='Congress number (default: 119)')
     parser.add_argument('--max-bills', type=int, default=100, help='Maximum bills to process (default: 100)')
+    parser.add_argument('--days-back', type=int, default=7, help='How many days back to consider for new bills (default: 7)')
     parser.add_argument('--api-key', help='Congress.gov API key')
     
     args = parser.parse_args()
@@ -364,7 +651,7 @@ def main():
         os.environ['CONGRESSGOV_API_KEY'] = args.api_key
     
     updater = EnhancedDailySponsorsCosponsorsUpdater()
-    success = updater.enhanced_daily_update(args.congress, args.max_bills)
+    success = updater.enhanced_daily_update(args.congress, args.max_bills, args.days_back)
     
     sys.exit(0 if success else 1)
 

@@ -701,6 +701,8 @@
                     ${caucuses.maga > 0 ? `<span class="member-badge caucus-badge">MAGA: ${caucuses.maga}</span>` : ''}
                     ${caucuses.cbc > 0 ? `<span class="member-badge caucus-badge">CBC: ${caucuses.cbc}</span>` : ''}
                     ${caucuses.tb > 0 ? `<span class="member-badge caucus-badge">TB: ${caucuses.tb}</span>` : ''}
+                    ${caucuses.chc > 0 ? `<span class="member-badge caucus-badge">CHC: ${caucuses.chc}</span>` : ''}
+                ${caucuses.ndc > 0 ? `<span class="member-badge caucus-badge">NDC: ${caucuses.ndc}</span>` : ''}
                   </p>
                   
                   <h6>Top States</h6>
@@ -796,7 +798,9 @@
                                     'bd': { name: 'BD', class: 'bg-info text-white', icon: 'fas fa-dog', link: '/caucus/3' },
                                     'maga': { name: 'MAGA', class: 'bg-danger text-white', icon: 'fas fa-biohazard', link: '/caucus/5' },
                                     'cbc': { name: 'CBC', class: 'text-white', style: 'background-color: #1a237e;', icon: 'fas fa-users', link: '/caucus/4' },
-                                    'tb': { name: 'TB', class: 'bg-primary text-white', icon: 'fas fa-heart', link: '/caucus/6' }
+                                    'tb': { name: 'TB', class: 'bg-primary text-white', icon: 'fas fa-heart', link: '/caucus/6' },
+                                    'chc': { name: 'CHC', class: 'text-white', style: 'background-color: #2e7d32;', icon: 'fas fa-flag', link: '/caucus/7' },
+                                    'ndc': { name: 'NDC', class: 'text-white', style: 'background-color: #1976d2;', icon: 'fas fa-chart-line', link: '/caucus/8' }
                                   };
                                   const config = badgeConfig[badge];
                                   if (config) {

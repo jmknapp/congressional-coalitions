@@ -30,6 +30,14 @@ async function loadCaucuses() {
             option.textContent = caucus.name;
             select.appendChild(option);
         });
+        
+        // Add "Add Caucus" option
+        const addOption = document.createElement('option');
+        addOption.value = 'add_new';
+        addOption.textContent = '+ Add New Caucus';
+        addOption.style.fontStyle = 'italic';
+        addOption.style.color = '#6c757d';
+        select.appendChild(addOption);
     } catch (error) {
         console.error('Error loading caucuses:', error);
         showAlert('Error loading caucuses', 'danger');
@@ -62,6 +70,14 @@ async function onCaucusSelect(event) {
     const caucusId = event.target.value;
     if (!caucusId) {
         hideCaucusInfo();
+        return;
+    }
+    
+    // Handle "Add New Caucus" selection
+    if (caucusId === 'add_new') {
+        showAddCaucusModal();
+        // Reset dropdown to default
+        event.target.value = '';
         return;
     }
     
@@ -419,4 +435,71 @@ function showAlert(message, type) {
             alertDiv.remove();
         }
     }, 5000);
+}
+
+// Show the Add Caucus modal
+function showAddCaucusModal() {
+    const modal = document.getElementById('addCaucusModal');
+    if (modal) {
+        const bootstrapModal = new bootstrap.Modal(modal);
+        bootstrapModal.show();
+    }
+}
+
+// Handle caucus creation
+async function createCaucus() {
+    const form = document.getElementById('addCaucusForm');
+    const formData = new FormData(form);
+    
+    const caucusData = {
+        name: formData.get('name'),
+        short_name: formData.get('short_name'),
+        description: formData.get('description'),
+        color: formData.get('color'),
+        icon: formData.get('icon'),
+        is_active: true
+    };
+    
+    // Validate required fields
+    if (!caucusData.name || !caucusData.short_name) {
+        showAlert('Name and Short Name are required', 'danger');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/caucuses', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(caucusData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showAlert('Caucus created successfully!', 'success');
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addCaucusModal'));
+            modal.hide();
+            
+            // Reset form
+            form.reset();
+            
+            // Reload caucuses dropdown
+            await loadCaucuses();
+            
+            // Select the newly created caucus
+            const select = document.getElementById('caucusSelect');
+            select.value = result.id;
+            onCaucusSelect({ target: select });
+            
+        } else {
+            showAlert(result.error || 'Error creating caucus', 'danger');
+        }
+    } catch (error) {
+        console.error('Error creating caucus:', error);
+        showAlert('Error creating caucus', 'danger');
+    }
 }

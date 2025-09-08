@@ -215,6 +215,16 @@
                 badges += '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="True Blue Democrats"><i class="fas fa-heart me-1"></i>TB</span></a>';
             }
             
+            // Congressional Hispanic Caucus badge
+            if (member.is_hispanic_caucus) {
+                badges += '<a href="/caucus/7" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #2e7d32;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Hispanic Caucus"><i class="fas fa-flag me-1"></i>CHC</span></a>';
+            }
+            
+            // New Democrat Coalition badge
+            if (member.is_new_democrat_coalition) {
+                badges += '<a href="/caucus/8" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #1976d2;" data-bs-toggle="tooltip" data-bs-placement="top" title="New Democrat Coalition"><i class="fas fa-chart-line me-1"></i>NDC</span></a>';
+            }
+            
             container.innerHTML = badges;
         });
         
