@@ -25,6 +25,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action, BillSubject
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
+from scripts.setup_challengers_table import Challenger2026
 from sqlalchemy import or_, and_, text
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
@@ -1669,6 +1670,207 @@ def caucus_management_page():
 def actblue_management_page():
     """ActBlue URL management page (dev mode only)."""
     return render_template('actblue_management.html')
+
+@app.route('/challengers')
+def challengers_page():
+    """2026 Democratic challengers page (dev mode only)."""
+    return render_template('challengers.html')
+
+@app.route('/api/challengers', methods=['GET'])
+def get_challengers():
+    """Get all 2026 challengers."""
+    try:
+        with get_db_session() as session:
+            challengers = session.query(Challenger2026).order_by(
+                Challenger2026.challenger_state, 
+                Challenger2026.challenger_district,
+                Challenger2026.challenger_name
+            ).all()
+            
+            challengers_data = []
+            for challenger in challengers:
+                challengers_data.append({
+                    'id': challenger.id,
+                    'challenger_name': challenger.challenger_name,
+                    'challenger_party': challenger.challenger_party,
+                    'challenger_state': challenger.challenger_state,
+                    'challenger_district': challenger.challenger_district,
+                    'campaign_homepage_url': challenger.campaign_homepage_url,
+                    'actblue_donation_link': challenger.actblue_donation_link,
+                    'mugshot_image_filename': challenger.mugshot_image_filename,
+                    'biography': challenger.biography,
+                    'created_at': challenger.created_at.isoformat() if challenger.created_at else None,
+                    'updated_at': challenger.updated_at.isoformat() if challenger.updated_at else None
+                })
+            
+            return jsonify({
+                'success': True,
+                'challengers': challengers_data
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/challengers', methods=['POST'])
+def add_challenger():
+    """Add a new 2026 challenger."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['challenger_name', 'challenger_state', 'challenger_district']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'error': f'Missing required field: {field}'
+                }), 400
+        
+        with get_db_session() as session:
+            # Create new challenger
+            challenger = Challenger2026(
+                challenger_name=data['challenger_name'],
+                challenger_party=data.get('challenger_party', 'D'),
+                challenger_state=data['challenger_state'],
+                challenger_district=data['challenger_district'],
+                campaign_homepage_url=data.get('campaign_homepage_url'),
+                actblue_donation_link=data.get('actblue_donation_link'),
+                mugshot_image_filename=data.get('mugshot_image_filename'),
+                biography=data.get('biography')
+            )
+            
+            session.add(challenger)
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Challenger added successfully',
+                'challenger_id': challenger.id
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/challengers/<int:challenger_id>', methods=['PUT'])
+def update_challenger(challenger_id):
+    """Update an existing 2026 challenger."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['challenger_name', 'challenger_state', 'challenger_district']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'error': f'Missing required field: {field}'
+                }), 400
+        
+        with get_db_session() as session:
+            # Find the challenger
+            challenger = session.query(Challenger2026).filter(Challenger2026.id == challenger_id).first()
+            
+            if not challenger:
+                return jsonify({
+                    'success': False,
+                    'error': 'Challenger not found'
+                }), 404
+            
+            # Update challenger fields
+            challenger.challenger_name = data['challenger_name']
+            challenger.challenger_party = data.get('challenger_party', 'D')
+            challenger.challenger_state = data['challenger_state']
+            challenger.challenger_district = data['challenger_district']
+            challenger.campaign_homepage_url = data.get('campaign_homepage_url')
+            challenger.actblue_donation_link = data.get('actblue_donation_link')
+            challenger.mugshot_image_filename = data.get('mugshot_image_filename')
+            challenger.biography = data.get('biography')
+            
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Challenger updated successfully'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/challengers/<int:challenger_id>', methods=['DELETE'])
+def delete_challenger(challenger_id):
+    """Delete a 2026 challenger."""
+    try:
+        with get_db_session() as session:
+            # Find the challenger
+            challenger = session.query(Challenger2026).filter(Challenger2026.id == challenger_id).first()
+            
+            if not challenger:
+                return jsonify({
+                    'success': False,
+                    'error': 'Challenger not found'
+                }), 404
+            
+            # Delete the challenger
+            session.delete(challenger)
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Challenger deleted successfully'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/incumbent/<state>/<int:district>')
+def get_incumbent(state, district):
+    """Get incumbent information for a specific state and district."""
+    try:
+        with get_db_session() as session:
+            # Find the current member for this state/district
+            member = session.query(Member).filter(
+                Member.state == state,
+                Member.district == district,
+                Member.end_date.is_(None)  # Current member (no end date)
+            ).first()
+            
+            print(f"Looking for incumbent in {state}-{district}")
+            if member:
+                print(f"Found incumbent: {member.first} {member.last} ({member.member_id_bioguide})")
+                return jsonify({
+                    'success': True,
+                    'incumbent': {
+                        'name': f"{member.first} {member.last}",
+                        'party': member.party,
+                        'state': member.state,
+                        'district': member.district,
+                        'bioguide_id': member.member_id_bioguide
+                    }
+                })
+            else:
+                print(f"No incumbent found for {state}-{district}")
+                return jsonify({
+                    'success': False,
+                    'error': 'No incumbent found for this district'
+                }), 404
+                
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/caucus/<int:caucus_id>')
 def caucus_info_page(caucus_id):

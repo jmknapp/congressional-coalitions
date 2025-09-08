@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Democratic Challengers - Congressional Coalitions</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .challenger-card {
+            transition: all 0.2s ease;
+            border-left: 4px solid #0d6efd;
+        }
+        .challenger-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .challenger-name {
+            font-weight: 600;
+            color: #0d6efd;
+        }
+        .challenger-district {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .url-link {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        .url-link:hover {
+            text-decoration: underline;
+        }
+        .add-challenger-form {
+            background-color: #f8f9fa;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        .btn-add {
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+        .btn-add:hover {
+            background-color: #218838;
+            border-color: #1e7e34;
+        }
+        .alert-info {
+            border-left: 4px solid #0dcaf0;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-university me-2"></i>
+                Congressional Coalitions
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/caucus-management" id="caucus-management-link" style="display: none;">
+                    <i class="fas fa-users-cog me-1"></i>Caucus Management
+                </a>
+                <a class="nav-link" href="/actblue-management" id="actblue-management-link" style="display: none;">
+                    <i class="fas fa-donate me-1"></i>ActBlue URLs
+                </a>
+                <span class="navbar-text" id="dev-mode-badge" style="display: none;">
+                    <span class="badge bg-warning text-dark">
+                        <i class="fas fa-code me-1"></i>DEV MODE
+                    </span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h2 mb-1">
+                            <i class="fas fa-vote-yea me-2 text-primary"></i>
+                            2026 Democratic Challengers
+                        </h1>
+                        <p class="text-muted mb-0">Track Democratic candidates challenging Republican incumbents in 2026</p>
+                    </div>
+                    <div id="add-challenger-section" style="display: none;">
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChallengerModal">
+                            <i class="fas fa-plus me-1"></i>Add Challenger
+                        </button>
+                    </div>
+                </div>
+
+                <!-- State Filter -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="d-flex align-items-center gap-3">
+                            <label for="stateFilter" class="form-label mb-0 fw-semibold">
+                                <i class="fas fa-filter me-1"></i>Filter by State:
+                            </label>
+                            <select class="form-select" id="stateFilter" style="width: auto;">
+                                <option value="">All States</option>
+                            </select>
+                            <button class="btn btn-outline-secondary btn-sm" id="clearFilter" style="display: none;">
+                                <i class="fas fa-times me-1"></i>Clear
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <div id="filterResults" class="text-muted small"></div>
+                    </div>
+                </div>
+
+                <!-- Info Alert -->
+                <div class="alert alert-info d-flex align-items-center mb-4">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <div>
+                        <strong>Purpose:</strong> This page tracks Democratic challengers running against Republican incumbents in the 2026 elections. 
+                        Use this to monitor campaign progress and coordinate support efforts.
+                    </div>
+                </div>
+
+                <!-- Challengers List -->
+                <div id="challengers-container">
+                    <div class="text-center py-5">
+                        <i class="fas fa-spinner fa-spin fa-2x text-muted mb-3"></i>
+                        <p class="text-muted">Loading challengers...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Challenger Modal -->
+    <div class="modal fade" id="addChallengerModal" tabindex="-1" aria-labelledby="addChallengerModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addChallengerModalLabel">
+                        <i class="fas fa-plus me-2"></i>Add New Challenger
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="addChallengerForm">
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="challengerName" class="form-label">Challenger Name *</label>
+                                    <input type="text" class="form-control" id="challengerName" name="challenger_name" required>
+                                    <div class="form-text">Full name of the Democratic challenger</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-3">
+                                    <label for="challengerParty" class="form-label">Party</label>
+                                    <select class="form-select" id="challengerParty" name="challenger_party">
+                                        <option value="D" selected>Democratic (D)</option>
+                                        <option value="R">Republican (R)</option>
+                                        <option value="I">Independent (I)</option>
+                                        <option value="G">Green (G)</option>
+                                        <option value="L">Libertarian (L)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-3">
+                                    <label for="challengerState" class="form-label">State *</label>
+                                    <select class="form-select" id="challengerState" name="challenger_state" required>
+                                        <option value="">Select State</option>
+                                        <option value="AL">Alabama</option>
+                                        <option value="AK">Alaska</option>
+                                        <option value="AZ">Arizona</option>
+                                        <option value="AR">Arkansas</option>
+                                        <option value="CA">California</option>
+                                        <option value="CO">Colorado</option>
+                                        <option value="CT">Connecticut</option>
+                                        <option value="DE">Delaware</option>
+                                        <option value="FL">Florida</option>
+                                        <option value="GA">Georgia</option>
+                                        <option value="HI">Hawaii</option>
+                                        <option value="ID">Idaho</option>
+                                        <option value="IL">Illinois</option>
+                                        <option value="IN">Indiana</option>
+                                        <option value="IA">Iowa</option>
+                                        <option value="KS">Kansas</option>
+                                        <option value="KY">Kentucky</option>
+                                        <option value="LA">Louisiana</option>
+                                        <option value="ME">Maine</option>
+                                        <option value="MD">Maryland</option>
+                                        <option value="MA">Massachusetts</option>
+                                        <option value="MI">Michigan</option>
+                                        <option value="MN">Minnesota</option>
+                                        <option value="MS">Mississippi</option>
+                                        <option value="MO">Missouri</option>
+                                        <option value="MT">Montana</option>
+                                        <option value="NE">Nebraska</option>
+                                        <option value="NV">Nevada</option>
+                                        <option value="NH">New Hampshire</option>
+                                        <option value="NJ">New Jersey</option>
+                                        <option value="NM">New Mexico</option>
+                                        <option value="NY">New York</option>
+                                        <option value="NC">North Carolina</option>
+                                        <option value="ND">North Dakota</option>
+                                        <option value="OH">Ohio</option>
+                                        <option value="OK">Oklahoma</option>
+                                        <option value="OR">Oregon</option>
+                                        <option value="PA">Pennsylvania</option>
+                                        <option value="RI">Rhode Island</option>
+                                        <option value="SC">South Carolina</option>
+                                        <option value="SD">South Dakota</option>
+                                        <option value="TN">Tennessee</option>
+                                        <option value="TX">Texas</option>
+                                        <option value="UT">Utah</option>
+                                        <option value="VT">Vermont</option>
+                                        <option value="VA">Virginia</option>
+                                        <option value="WA">Washington</option>
+                                        <option value="WV">West Virginia</option>
+                                        <option value="WI">Wisconsin</option>
+                                        <option value="WY">Wyoming</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="challengerDistrict" class="form-label">District *</label>
+                                    <input type="number" class="form-control" id="challengerDistrict" name="challenger_district" min="1" max="53" required>
+                                    <div class="form-text">Congressional district number (1-53)</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="campaignHomepage" class="form-label">Campaign Homepage URL</label>
+                                    <input type="url" class="form-control" id="campaignHomepage" name="campaign_homepage_url" placeholder="https://example.com">
+                                    <div class="form-text">Official campaign website</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="actblueLink" class="form-label">ActBlue Donation Link</label>
+                                    <input type="url" class="form-control" id="actblueLink" name="actblue_donation_link" placeholder="https://secure.actblue.com/...">
+                                    <div class="form-text">ActBlue fundraising page</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="mugshotImage" class="form-label">Mugshot Image Filename</label>
+                                    <input type="text" class="form-control" id="mugshotImage" name="mugshot_image_filename" placeholder="candidate_photo.jpg">
+                                    <div class="form-text">Filename in challengers/mugshots/ directory</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="mb-3">
+                                    <label for="biography" class="form-label">Biography</label>
+                                    <textarea class="form-control" id="biography" name="biography" rows="4" maxlength="1000" placeholder="Brief biography of the challenger..."></textarea>
+                                    <div class="form-text">
+                                        <span id="biography-count">0</span>/1000 characters
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus me-1"></i>Add Challenger
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Challenger Modal -->
+    <div class="modal fade" id="editChallengerModal" tabindex="-1" aria-labelledby="editChallengerModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editChallengerModalLabel">
+                        <i class="fas fa-edit me-2"></i>Edit Challenger
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editChallengerForm">
+                    <input type="hidden" id="editChallengerId" name="id">
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editChallengerName" class="form-label">Challenger Name *</label>
+                                    <input type="text" class="form-control" id="editChallengerName" name="challenger_name" required>
+                                    <div class="form-text">Full name of the Democratic challenger</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-3">
+                                    <label for="editChallengerParty" class="form-label">Party</label>
+                                    <select class="form-select" id="editChallengerParty" name="challenger_party">
+                                        <option value="D">Democratic (D)</option>
+                                        <option value="R">Republican (R)</option>
+                                        <option value="I">Independent (I)</option>
+                                        <option value="G">Green (G)</option>
+                                        <option value="L">Libertarian (L)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-3">
+                                    <label for="editChallengerState" class="form-label">State *</label>
+                                    <select class="form-select" id="editChallengerState" name="challenger_state" required>
+                                        <option value="">Select State</option>
+                                        <option value="AL">Alabama</option>
+                                        <option value="AK">Alaska</option>
+                                        <option value="AZ">Arizona</option>
+                                        <option value="AR">Arkansas</option>
+                                        <option value="CA">California</option>
+                                        <option value="CO">Colorado</option>
+                                        <option value="CT">Connecticut</option>
+                                        <option value="DE">Delaware</option>
+                                        <option value="FL">Florida</option>
+                                        <option value="GA">Georgia</option>
+                                        <option value="HI">Hawaii</option>
+                                        <option value="ID">Idaho</option>
+                                        <option value="IL">Illinois</option>
+                                        <option value="IN">Indiana</option>
+                                        <option value="IA">Iowa</option>
+                                        <option value="KS">Kansas</option>
+                                        <option value="KY">Kentucky</option>
+                                        <option value="LA">Louisiana</option>
+                                        <option value="ME">Maine</option>
+                                        <option value="MD">Maryland</option>
+                                        <option value="MA">Massachusetts</option>
+                                        <option value="MI">Michigan</option>
+                                        <option value="MN">Minnesota</option>
+                                        <option value="MS">Mississippi</option>
+                                        <option value="MO">Missouri</option>
+                                        <option value="MT">Montana</option>
+                                        <option value="NE">Nebraska</option>
+                                        <option value="NV">Nevada</option>
+                                        <option value="NH">New Hampshire</option>
+                                        <option value="NJ">New Jersey</option>
+                                        <option value="NM">New Mexico</option>
+                                        <option value="NY">New York</option>
+                                        <option value="NC">North Carolina</option>
+                                        <option value="ND">North Dakota</option>
+                                        <option value="OH">Ohio</option>
+                                        <option value="OK">Oklahoma</option>
+                                        <option value="OR">Oregon</option>
+                                        <option value="PA">Pennsylvania</option>
+                                        <option value="RI">Rhode Island</option>
+                                        <option value="SC">South Carolina</option>
+                                        <option value="SD">South Dakota</option>
+                                        <option value="TN">Tennessee</option>
+                                        <option value="TX">Texas</option>
+                                        <option value="UT">Utah</option>
+                                        <option value="VT">Vermont</option>
+                                        <option value="VA">Virginia</option>
+                                        <option value="WA">Washington</option>
+                                        <option value="WV">West Virginia</option>
+                                        <option value="WI">Wisconsin</option>
+                                        <option value="WY">Wyoming</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editChallengerDistrict" class="form-label">District *</label>
+                                    <input type="number" class="form-control" id="editChallengerDistrict" name="challenger_district" min="1" max="53" required>
+                                    <div class="form-text">Congressional district number (1-53)</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editCampaignHomepage" class="form-label">Campaign Homepage URL</label>
+                                    <input type="url" class="form-control" id="editCampaignHomepage" name="campaign_homepage_url" placeholder="https://example.com">
+                                    <div class="form-text">Official campaign website</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editActblueLink" class="form-label">ActBlue Donation Link</label>
+                                    <input type="url" class="form-control" id="editActblueLink" name="actblue_donation_link" placeholder="https://secure.actblue.com/...">
+                                    <div class="form-text">ActBlue fundraising page</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editMugshotImage" class="form-label">Mugshot Image Filename</label>
+                                    <input type="text" class="form-control" id="editMugshotImage" name="mugshot_image_filename" placeholder="candidate_photo.jpg">
+                                    <div class="form-text">Filename in challengers/mugshots/ directory</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-12">
+                                <div class="mb-3">
+                                    <label for="editBiography" class="form-label">Biography</label>
+                                    <textarea class="form-control" id="editBiography" name="biography" rows="4" maxlength="1000" placeholder="Brief biography of the challenger..."></textarea>
+                                    <div class="form-text">
+                                        <span id="edit-biography-count">0</span>/1000 characters
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global variables for filtering
+        let allChallengers = [];
+        let filteredChallengers = [];
+        let developerMode = false;
+
+        // Load challengers on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if developer mode was previously enabled (localStorage)
+            if (localStorage.getItem('developerMode') === 'true') {
+                enableDeveloperMode();
+            }
+            
+            // Listen for Shift+Ctrl+D key combination
+            document.addEventListener('keydown', function(event) {
+                if (event.shiftKey && event.ctrlKey && event.key.toLowerCase() === 'd') {
+                    event.preventDefault();
+                    toggleDeveloperMode();
+                }
+            });
+            
+            loadChallengers();
+            
+            // State filter change handler
+            document.getElementById('stateFilter').addEventListener('change', function() {
+                filterChallengers();
+            });
+            
+            // Clear filter button handler
+            document.getElementById('clearFilter').addEventListener('click', function() {
+                document.getElementById('stateFilter').value = '';
+                filterChallengers();
+            });
+            
+            // Biography character counter for add form
+            const biographyTextarea = document.getElementById('biography');
+            const biographyCount = document.getElementById('biography-count');
+            
+            if (biographyTextarea && biographyCount) {
+                biographyTextarea.addEventListener('input', function() {
+                    const count = this.value.length;
+                    biographyCount.textContent = count;
+                    
+                    // Change color based on character count
+                    if (count > 900) {
+                        biographyCount.style.color = '#dc3545'; // Red
+                    } else if (count > 800) {
+                        biographyCount.style.color = '#fd7e14'; // Orange
+                    } else {
+                        biographyCount.style.color = '#6c757d'; // Gray
+                    }
+                });
+            }
+            
+            // Biography character counter for edit form
+            const editBiographyTextarea = document.getElementById('editBiography');
+            const editBiographyCount = document.getElementById('edit-biography-count');
+            
+            if (editBiographyTextarea && editBiographyCount) {
+                editBiographyTextarea.addEventListener('input', function() {
+                    const count = this.value.length;
+                    editBiographyCount.textContent = count;
+                    
+                    // Change color based on character count
+                    if (count > 900) {
+                        editBiographyCount.style.color = '#dc3545'; // Red
+                    } else if (count > 800) {
+                        editBiographyCount.style.color = '#fd7e14'; // Orange
+                    } else {
+                        editBiographyCount.style.color = '#6c757d'; // Gray
+                    }
+                });
+            }
+        });
+
+        // Add challenger form submission
+        document.getElementById('addChallengerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            
+            // Convert district to integer
+            if (data.challenger_district) {
+                data.challenger_district = parseInt(data.challenger_district);
+            }
+            
+            fetch('/api/challengers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    // Close modal and reset form
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addChallengerModal'));
+                    modal.hide();
+                    this.reset();
+                    
+                    // Reload challengers
+                    loadChallengers();
+                    
+                    // Show success message
+                    showAlert('Challenger added successfully!', 'success');
+                } else {
+                    showAlert('Error adding challenger: ' + result.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error adding challenger. Please try again.', 'danger');
+            });
+        });
+
+        // Edit challenger form submission
+        document.getElementById('editChallengerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            const challengerId = data.id;
+            
+            // Convert district to integer
+            if (data.challenger_district) {
+                data.challenger_district = parseInt(data.challenger_district);
+            }
+            
+            // Debug logging
+            console.log('Edit form data:', data);
+            console.log('Challenger ID:', challengerId);
+            
+            fetch(`/api/challengers/${challengerId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                return response.json();
+            })
+            .then(result => {
+                console.log('Response result:', result);
+                if (result.success) {
+                    // Close modal and reset form
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('editChallengerModal'));
+                    modal.hide();
+                    this.reset();
+                    
+                    // Reload challengers
+                    loadChallengers();
+                    
+                    // Show success message
+                    showAlert('Challenger updated successfully!', 'success');
+                } else {
+                    showAlert('Error updating challenger: ' + result.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error updating challenger. Please try again.', 'danger');
+            });
+        });
+
+        function loadChallengers() {
+            fetch('/api/challengers')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allChallengers = data.challengers;
+                    populateStateFilter();
+                    filterChallengers();
+                } else {
+                    showAlert('Error loading challengers: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error loading challengers. Please try again.', 'danger');
+            });
+        }
+
+        function populateStateFilter() {
+            const stateFilter = document.getElementById('stateFilter');
+            const states = [...new Set(allChallengers.map(c => c.challenger_state))].sort();
+            
+            // Clear existing options except "All States"
+            stateFilter.innerHTML = '<option value="">All States</option>';
+            
+            // Add state options
+            states.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                stateFilter.appendChild(option);
+            });
+        }
+
+        function filterChallengers() {
+            const selectedState = document.getElementById('stateFilter').value;
+            const clearButton = document.getElementById('clearFilter');
+            const filterResults = document.getElementById('filterResults');
+            
+            if (selectedState) {
+                filteredChallengers = allChallengers.filter(c => c.challenger_state === selectedState);
+                clearButton.style.display = 'inline-block';
+                filterResults.textContent = `Showing ${filteredChallengers.length} challenger(s) from ${selectedState}`;
+            } else {
+                filteredChallengers = allChallengers;
+                clearButton.style.display = 'none';
+                filterResults.textContent = `Showing all ${filteredChallengers.length} challenger(s)`;
+            }
+            
+            displayChallengers(filteredChallengers);
+        }
+
+        function updateDevModeButtons() {
+            const editButtons = document.querySelectorAll('.dev-mode-buttons');
+            editButtons.forEach(button => {
+                button.style.display = developerMode ? 'block' : 'none';
+            });
+        }
+
+        function displayChallengers(challengers) {
+            const container = document.getElementById('challengers-container');
+            const selectedState = document.getElementById('stateFilter').value;
+            
+            if (challengers.length === 0) {
+                if (selectedState) {
+                    container.innerHTML = `
+                        <div class="text-center py-5">
+                            <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                            <h4 class="text-muted">No challengers found</h4>
+                            <p class="text-muted">No challengers found for ${selectedState}. Try selecting a different state or add a new challenger.</p>
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChallengerModal">
+                                <i class="fas fa-plus me-1"></i>Add Challenger
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="text-center py-5">
+                            <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                            <h4 class="text-muted">No challengers yet</h4>
+                            <p class="text-muted">Add your first Democratic challenger to get started.</p>
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChallengerModal">
+                                <i class="fas fa-plus me-1"></i>Add First Challenger
+                            </button>
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            const html = `
+                <div class="row">
+                    ${challengers.map(challenger => `
+                        <div class="col-md-6 col-lg-4 mb-4">
+                            <div class="card challenger-card h-100">
+                                <div class="card-body">
+                                    <div class="d-flex align-items-start mb-3">
+                                        ${challenger.mugshot_image_filename ? `
+                                            <img src="/static/challengers/mugshots/${escapeHtml(challenger.mugshot_image_filename)}" 
+                                                 class="rounded me-3" 
+                                                 style="width: 60px; height: 60px; object-fit: cover;" 
+                                                 alt="${escapeHtml(challenger.challenger_name)}"
+                                                 onerror="this.style.display='none'">
+                                        ` : `
+                                            <div class="rounded me-3 d-flex align-items-center justify-content-center bg-light" 
+                                                 style="width: 60px; height: 60px;">
+                                                <i class="fas fa-user text-muted"></i>
+                                            </div>
+                                        `}
+                                        <div class="flex-grow-1">
+                                            <h5 class="card-title challenger-name mb-1">${escapeHtml(challenger.challenger_name)}</h5>
+                                            <p class="card-text challenger-district mb-0">
+                                                <i class="fas fa-map-marker-alt me-1"></i>
+                                                ${challenger.challenger_state}-${challenger.challenger_district}
+                                                <span class="badge bg-primary ms-2">${challenger.challenger_party}</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <!-- Running to unseat section -->
+                                    <div class="mb-3">
+                                        <h6 class="text-muted mb-2">
+                                            <i class="fas fa-bullseye me-1"></i>Running to unseat:
+                                        </h6>
+                                        <div class="d-flex align-items-center p-2 bg-light rounded" id="incumbent-${challenger.id}">
+                                            <div class="rounded me-3 d-flex align-items-center justify-content-center bg-secondary" 
+                                                 style="width: 50px; height: 50px;">
+                                                <i class="fas fa-user-tie text-white"></i>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="fw-semibold text-dark">Loading...</div>
+                                                <div class="small text-muted">${challenger.challenger_state}-${challenger.challenger_district}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    ${challenger.biography ? `
+                                        <div class="mb-3">
+                                            <h6 class="text-muted mb-2">
+                                                <i class="fas fa-user me-1"></i>About the Challenger:
+                                            </h6>
+                                            <p class="card-text small text-muted" style="line-height: 1.4;">
+                                                ${escapeHtml(challenger.biography)}
+                                            </p>
+                                        </div>
+                                    ` : ''}
+                                    <div class="d-flex flex-column gap-2">
+                                        ${challenger.campaign_homepage_url ? `
+                                            <a href="${escapeHtml(challenger.campaign_homepage_url)}" target="_blank" class="url-link">
+                                                <i class="fas fa-globe me-1"></i>Campaign Website
+                                            </a>
+                                        ` : ''}
+                                        ${challenger.actblue_donation_link ? `
+                                            <a href="${escapeHtml(challenger.actblue_donation_link)}" target="_blank" class="url-link">
+                                                <i class="fas fa-donate me-1"></i>Donate via ActBlue
+                                            </a>
+                                        ` : ''}
+                                    </div>
+                                    <div class="mt-3 pt-3 border-top dev-mode-buttons" style="display: none;">
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-outline-primary btn-sm flex-grow-1" 
+                                                    onclick="editChallenger(${challenger.id})">
+                                                <i class="fas fa-edit me-1"></i>Edit
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" 
+                                                    onclick="deleteChallenger(${challenger.id}, '${escapeHtml(challenger.challenger_name)}')">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-footer text-muted">
+                                    <small>
+                                        <i class="fas fa-calendar-plus me-1"></i>
+                                        Added ${new Date(challenger.created_at).toLocaleDateString()}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = html;
+            
+            // Update dev mode buttons visibility
+            updateDevModeButtons();
+            
+            // Load incumbent information for each challenger
+            loadIncumbentInfo(challengers);
+        }
+
+        function loadIncumbentInfo(challengers) {
+            challengers.forEach(challenger => {
+                console.log(`Loading incumbent for ${challenger.challenger_state}-${challenger.challenger_district}`);
+                fetch(`/api/incumbent/${challenger.challenger_state}/${challenger.challenger_district}`)
+                .then(response => {
+                    console.log(`Response for ${challenger.challenger_state}-${challenger.challenger_district}:`, response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log(`Incumbent data for ${challenger.challenger_state}-${challenger.challenger_district}:`, data);
+                    const incumbentDiv = document.getElementById(`incumbent-${challenger.id}`);
+                    if (incumbentDiv && data.success) {
+                        const incumbent = data.incumbent;
+                        const partyColor = incumbent.party === 'R' ? 'text-danger' : 
+                                          incumbent.party === 'D' ? 'text-primary' : 'text-secondary';
+                        
+                        console.log(`Setting incumbent photo for ${incumbent.name} (${incumbent.bioguide_id})`);
+                        
+                        incumbentDiv.innerHTML = `
+                            <div class="position-relative me-3" style="width: 50px; height: 50px;">
+                                <div class="rounded d-flex align-items-center justify-content-center bg-secondary position-absolute" 
+                                     style="width: 50px; height: 50px; top: 0; left: 0; display: flex; z-index: 1;">
+                                    <i class="fas fa-user-tie text-white"></i>
+                                </div>
+                                <img src="https://www.congress.gov/img/member/${incumbent.bioguide_id.toLowerCase()}.jpg" 
+                                     class="rounded position-absolute" 
+                                     style="width: 50px; height: 50px; object-fit: cover; top: 0; left: 0; z-index: 2;" 
+                                     alt="${escapeHtml(incumbent.name)}"
+                                     onerror="console.log('Congress.gov photo failed for ${incumbent.bioguide_id}, trying alternative...'); this.src='https://bioguide.congress.gov/bioguide/photo/${incumbent.bioguide_id.charAt(0)}/${incumbent.bioguide_id}.jpg'; this.onerror=function(){console.log('All photo sources failed for ${incumbent.bioguide_id}'); this.style.display='none';};"
+                                     onload="console.log('Photo loaded successfully for ${incumbent.bioguide_id}');">
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold text-dark">${escapeHtml(incumbent.name)}</div>
+                                <div class="small text-muted">
+                                    <span class="${partyColor}">${incumbent.party}</span> • ${incumbent.state}-${incumbent.district}
+                                </div>
+                            </div>
+                        `;
+                    } else if (incumbentDiv) {
+                        // Show error state
+                        incumbentDiv.innerHTML = `
+                            <div class="rounded me-3 d-flex align-items-center justify-content-center bg-warning" 
+                                 style="width: 50px; height: 50px;">
+                                <i class="fas fa-question text-white"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold text-dark">Incumbent Unknown</div>
+                                <div class="small text-muted">${challenger.challenger_state}-${challenger.challenger_district}</div>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading incumbent info:', error);
+                    const incumbentDiv = document.getElementById(`incumbent-${challenger.id}`);
+                    if (incumbentDiv) {
+                        incumbentDiv.innerHTML = `
+                            <div class="rounded me-3 d-flex align-items-center justify-content-center bg-warning" 
+                                 style="width: 50px; height: 50px;">
+                                <i class="fas fa-exclamation text-white"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold text-dark">Error Loading</div>
+                                <div class="small text-muted">${challenger.challenger_state}-${challenger.challenger_district}</div>
+                            </div>
+                        `;
+                    }
+                });
+            });
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            const container = document.querySelector('.container');
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function editChallenger(challengerId) {
+            // Find the challenger data
+            fetch('/api/challengers')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const challenger = data.challengers.find(c => c.id === challengerId);
+                    if (challenger) {
+                        // Populate the edit form
+                        document.getElementById('editChallengerId').value = challenger.id;
+                        document.getElementById('editChallengerName').value = challenger.challenger_name || '';
+                        document.getElementById('editChallengerParty').value = challenger.challenger_party || 'D';
+                        document.getElementById('editChallengerState').value = challenger.challenger_state || '';
+                        document.getElementById('editChallengerDistrict').value = challenger.challenger_district || '';
+                        document.getElementById('editCampaignHomepage').value = challenger.campaign_homepage_url || '';
+                        document.getElementById('editActblueLink').value = challenger.actblue_donation_link || '';
+                        document.getElementById('editMugshotImage').value = challenger.mugshot_image_filename || '';
+                        document.getElementById('editBiography').value = challenger.biography || '';
+                        
+                        // Update character count
+                        const editBiographyCount = document.getElementById('edit-biography-count');
+                        if (editBiographyCount) {
+                            const count = challenger.biography ? challenger.biography.length : 0;
+                            editBiographyCount.textContent = count;
+                            
+                            // Set color based on count
+                            if (count > 900) {
+                                editBiographyCount.style.color = '#dc3545';
+                            } else if (count > 800) {
+                                editBiographyCount.style.color = '#fd7e14';
+                            } else {
+                                editBiographyCount.style.color = '#6c757d';
+                            }
+                        }
+                        
+                        // Show the modal
+                        const modal = new bootstrap.Modal(document.getElementById('editChallengerModal'));
+                        modal.show();
+                    } else {
+                        showAlert('Challenger not found', 'danger');
+                    }
+                } else {
+                    showAlert('Error loading challenger data', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error loading challenger data', 'danger');
+            });
+        }
+
+        function deleteChallenger(challengerId, challengerName) {
+            if (confirm(`Are you sure you want to delete ${challengerName}? This action cannot be undone.`)) {
+                fetch(`/api/challengers/${challengerId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        // Reload challengers
+                        loadChallengers();
+                        
+                        // Show success message
+                        showAlert('Challenger deleted successfully!', 'success');
+                    } else {
+                        showAlert('Error deleting challenger: ' + result.error, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Error deleting challenger. Please try again.', 'danger');
+                });
+            }
+        }
+
+        function toggleDeveloperMode() {
+            if (developerMode) {
+                disableDeveloperMode();
+            } else {
+                enableDeveloperMode();
+            }
+        }
+        
+        function enableDeveloperMode() {
+            developerMode = true;
+            localStorage.setItem('developerMode', 'true');
+            
+            // Show dev mode badge
+            const devBadge = document.getElementById('dev-mode-badge');
+            if (devBadge) {
+                devBadge.style.display = 'block';
+            }
+            
+            // Show Caucus Management link
+            const caucusLink = document.getElementById('caucus-management-link');
+            if (caucusLink) {
+                caucusLink.style.display = 'block';
+            }
+            
+            // Show ActBlue Management link
+            const actblueLink = document.getElementById('actblue-management-link');
+            if (actblueLink) {
+                actblueLink.style.display = 'block';
+            }
+            
+            // Show add challenger button
+            const addSection = document.getElementById('add-challenger-section');
+            if (addSection) {
+                addSection.style.display = 'block';
+            }
+            
+            // Show edit/delete buttons on all challenger cards
+            const editButtons = document.querySelectorAll('.dev-mode-buttons');
+            editButtons.forEach(button => {
+                button.style.display = 'block';
+            });
+            
+            // Show dev mode indicator
+            showAlert('Developer Mode ENABLED - Add/Edit buttons visible', 'info');
+        }
+        
+        function disableDeveloperMode() {
+            developerMode = false;
+            localStorage.setItem('developerMode', 'false');
+            
+            // Hide dev mode badge
+            const devBadge = document.getElementById('dev-mode-badge');
+            if (devBadge) {
+                devBadge.style.display = 'none';
+            }
+            
+            // Hide Caucus Management link
+            const caucusLink = document.getElementById('caucus-management-link');
+            if (caucusLink) {
+                caucusLink.style.display = 'none';
+            }
+            
+            // Hide ActBlue Management link
+            const actblueLink = document.getElementById('actblue-management-link');
+            if (actblueLink) {
+                actblueLink.style.display = 'none';
+            }
+            
+            // Hide add challenger button
+            const addSection = document.getElementById('add-challenger-section');
+            if (addSection) {
+                addSection.style.display = 'none';
+            }
+            
+            // Hide edit/delete buttons on all challenger cards
+            const editButtons = document.querySelectorAll('.dev-mode-buttons');
+            editButtons.forEach(button => {
+                button.style.display = 'none';
+            });
+            
+            // Show dev mode indicator
+            showAlert('Developer Mode DISABLED - Add/Edit buttons hidden', 'info');
+        }
+    </script>
+</body>
+</html>
