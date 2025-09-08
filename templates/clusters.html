@@ -766,7 +766,55 @@
     }
     
     function truncateSubjectTerm(term) {
-      if (term.split(' ').length <= 3) {
+      // Special cases for common government terms that should be preserved
+      const preserveTerms = [
+        'Armed Services',
+        'Armed Forces', 
+        'National Security',
+        'Social Security',
+        'Health Care',
+        'Health Services',
+        'Public Health',
+        'Mental Health',
+        'Financial Services',
+        'Banking Services',
+        'Emergency Services',
+        'Public Safety',
+        'Law Enforcement',
+        'Border Security',
+        'Homeland Security',
+        'Foreign Affairs',
+        'International Relations',
+        'Trade Relations',
+        'Labor Relations',
+        'Public Works',
+        'Public Lands',
+        'Public Education',
+        'Higher Education',
+        'Elementary Education',
+        'Secondary Education',
+        'Special Education',
+        'Veterans Affairs',
+        'Veterans Benefits',
+        'Veterans Health',
+        'Energy Policy',
+        'Climate Policy',
+        'Immigration Policy',
+        'Tax Policy',
+        'Fiscal Policy',
+        'Monetary Policy'
+      ];
+      
+      // Check if the term matches any preserve terms (case insensitive)
+      const lowerTerm = term.toLowerCase();
+      for (const preserve of preserveTerms) {
+        if (lowerTerm.includes(preserve.toLowerCase())) {
+          return preserve;
+        }
+      }
+      
+      // Increase word limit to 4 words to avoid truncating important terms
+      if (term.split(' ').length <= 4) {
         return term;
       }
       
@@ -774,7 +822,8 @@
       const breakWords = ['and', 'or', 'of', 'in', 'on', 'at', 'for', 'with', 'by'];
       let breakIndex = -1;
       
-      for (let i = 2; i < Math.min(4, words.length); i++) {
+      // Look for break words in a wider range (up to 5 words)
+      for (let i = 2; i < Math.min(6, words.length); i++) {
         if (breakWords.includes(words[i].toLowerCase())) {
           breakIndex = i;
           break;
@@ -784,7 +833,8 @@
       if (breakIndex > 0) {
         return words.slice(0, breakIndex).join(' ');
       } else {
-        return words.slice(0, 3).join(' ');
+        // Use 4 words instead of 3 to preserve more meaningful terms
+        return words.slice(0, 4).join(' ');
       }
     }
 

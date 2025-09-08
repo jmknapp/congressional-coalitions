@@ -22,6 +22,7 @@ What this script actually measures:
 
 import os
 import sys
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -37,7 +38,7 @@ from scripts.setup_db import Member, Bill, Rollcall, Vote
 
 logger = logging.getLogger(__name__)
 
-def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, rollcall_party_positions: dict, member_parties: dict) -> float:
+def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, rollcall_party_positions: dict, member_parties: dict, debug=False) -> float:
     """
     Calculate partyliner score for a member.
     
@@ -58,21 +59,37 @@ def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, ro
     weighted_sum = 0.0
     total_weight = 0.0
     
+    if debug:
+        print(f"\n=== DEBUG: Partyliner calculation for {member_id} ({party}) ===")
+        total_votes_processed = 0
+        votes_with_party = 0
+        votes_against_party = 0
+        excluded_votes = 0
+    
     for rollcall_id, rollcall_votes in vote_matrix.items():
         if member_id not in rollcall_votes:
             continue
             
         vote = rollcall_votes[member_id]
         if vote not in ['Yea', 'Nay']:
+            if debug:
+                excluded_votes += 1
+                print(f"  Excluded: {rollcall_id} - vote '{vote}' not Yea/Nay")
             continue
             
         # Get party position for this rollcall
         if rollcall_id not in rollcall_party_positions or party not in rollcall_party_positions[rollcall_id]:
+            if debug:
+                excluded_votes += 1
+                print(f"  Excluded: {rollcall_id} - no party position found")
             continue
             
         party_position = rollcall_party_positions[rollcall_id][party]
         if party_position == 'Tie':
             # If party is tied, assign weight 0 (no party position to follow)
+            if debug:
+                excluded_votes += 1
+                print(f"  Excluded: {rollcall_id} - party position is Tie")
             continue
             
         # Count party votes for this rollcall
@@ -96,8 +113,9 @@ def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, ro
         else:  # party_position == 'Nay'
             party_proportion = party_nay / total_party_votes
             
-        # Base weight = abs(party_proportion - 0.5)
-        base_weight = abs(party_proportion - 0.5)
+        # Base weight = abs(party_proportion - 0.5) + 0.1
+        # Add 0.1 to ensure all votes contribute to the score (prevents zero-weight votes)
+        base_weight = abs(party_proportion - 0.5) + 0.1
         
         # Check if this was a coordinated cross-party vote (multiple party members cross-voted together)
         is_coordinated_cross_party = False
@@ -142,11 +160,45 @@ def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, ro
         # Binary score: 1 if voted with party, 0 if against
         voted_with_party = 1 if vote == party_position else 0
         
+        if debug:
+            total_votes_processed += 1
+            if voted_with_party:
+                votes_with_party += 1
+            else:
+                votes_against_party += 1
+            print(f"  Vote {total_votes_processed}: {rollcall_id} - Member: {vote}, Party: {party_position}, Weight: {weight:.4f}, With Party: {voted_with_party}")
+        
         weighted_sum += voted_with_party * weight
         total_weight += weight
     
     # Return weighted average, or 0.5 if no votes
-    return weighted_sum / total_weight if total_weight > 0 else 0.5
+    if total_weight == 0:
+        return 0.5
+    
+    score = weighted_sum / total_weight
+    
+    if debug:
+        print(f"\n  SUMMARY:")
+        print(f"    Total votes processed: {total_votes_processed}")
+        print(f"    Votes with party: {votes_with_party}")
+        print(f"    Votes against party: {votes_against_party}")
+        print(f"    Excluded votes: {excluded_votes}")
+        print(f"    Weighted sum: {weighted_sum:.6f}")
+        print(f"    Total weight: {total_weight:.6f}")
+        print(f"    Raw score: {score:.6f}")
+        print(f"    weighted_sum == total_weight: {abs(weighted_sum - total_weight) < 1e-10}")
+    
+    # Special case: if member voted with party on ALL votes, ensure score is exactly 1.0
+    # This handles the mathematical artifact where perfect party-line voters get < 1.0
+    # Use a small tolerance for floating-point comparison
+    if abs(weighted_sum - total_weight) < 1e-10:  # All votes were with party (voted_with_party = 1 for all)
+        if debug:
+            print(f"    Returning 1.0 (perfect party-line voter)")
+        return 1.0
+    
+    if debug:
+        print(f"    Returning {score:.6f}")
+    return score
 
 
 def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[str, Dict]:
@@ -228,7 +280,7 @@ def calculate_voting_ideology_scores_fast(congress: int, chamber: str) -> Dict[s
                             if vote == party_position:
                                 party_line_votes += 1
                         
-                        # Check cross-party voting (only when voting AGAINST party position)
+                        # Check cross-party voting (only when voting WITH opposite party AND against own party)
                         opposite_party = 'R' if party == 'D' else 'D'
                         if opposite_party in rollcall_party_positions.get(rollcall_id, {}):
                             opposite_position = rollcall_party_positions[rollcall_id][opposite_party]
@@ -293,7 +345,7 @@ def assign_ideological_labels(member_scores: Dict[str, Dict]) -> Dict[str, Dict]
                 labels.append('Mainstream Democrat')
                 
         elif party == 'R':
-            if partyliner_score >= 0.995:  # Use partyliner score for MAGA Republicans (99.5% threshold)
+            if partyliner_score >= 0.98:  # Use partyliner score for MAGA Republicans (98.0% threshold)
                 labels.append('MAGA Republican')
             elif party_line_pct < 70:  # Low party loyalty
                 if cross_party_pct > 20:  # High cross-party voting
@@ -509,6 +561,26 @@ def main():
     print()
     print("NOTE: For official caucus memberships (Freedom Caucus, Blue Dog Coalition, etc.),")
     print("you would need to maintain current membership lists from official sources.")
+    
+    # Save the updated profiles to cache file
+    print("\nSaving updated ideological profiles...")
+    cache_dir = 'cache'
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    cache_file = os.path.join(cache_dir, f'ideological_profiles_{congress}_{chamber}.json')
+    
+    # Prepare data for saving
+    save_data = {
+        'congress': congress,
+        'chamber': chamber,
+        'generated_at': datetime.now().isoformat(),
+        'profiles': labeled_members
+    }
+    
+    with open(cache_file, 'w') as f:
+        json.dump(save_data, f, indent=2)
+    
+    print(f"✓ Saved {len(labeled_members)} profiles to {cache_file}")
 
 if __name__ == "__main__":
     main()

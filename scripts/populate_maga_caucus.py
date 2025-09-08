@@ -77,7 +77,7 @@ def populate_maga_caucus():
                         member_id_bioguide=member_id,
                         caucus_id=maga_caucus.id,
                         start_date=None,  # Unknown when they became "MAGA"
-                        notes="Automatically populated from ideological analysis (>95% party-line voting)"
+                        notes="Automatically populated from ideological analysis (≥98.0% partyliner score)"
                     )
                     session.add(membership)
                     members_added += 1

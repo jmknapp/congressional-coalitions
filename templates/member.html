@@ -735,13 +735,13 @@
             
             // Voting metrics
             if (profile.party_line_percentage !== undefined) {
-                document.getElementById('party-line-percentage').textContent = `${profile.party_line_percentage}%`;
+                document.getElementById('party-line-percentage').textContent = `${profile.party_line_percentage.toFixed(1)}%`;
             }
             if (profile.cross_party_percentage !== undefined) {
-                document.getElementById('cross-party-percentage').textContent = `${profile.cross_party_percentage}%`;
+                document.getElementById('cross-party-percentage').textContent = `${profile.cross_party_percentage.toFixed(1)}%`;
             }
             if (profile.ideological_score !== undefined) {
-                document.getElementById('ideological-score').textContent = profile.ideological_score;
+                document.getElementById('ideological-score').textContent = profile.ideological_score.toFixed(1);
             }
         }
         
