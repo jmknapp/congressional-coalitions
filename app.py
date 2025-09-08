@@ -704,8 +704,8 @@ def get_rollcalls():
     """Get House roll call votes only with their details."""
     try:
         with get_db_session() as session:
-            # Filter for House rollcalls only
-            rollcalls = session.query(Rollcall).filter(Rollcall.chamber == 'house').all()
+            # Filter for House rollcalls only, sorted by date descending then roll call number descending
+            rollcalls = session.query(Rollcall).filter(Rollcall.chamber == 'house').order_by(Rollcall.date.desc(), Rollcall.rc_number.desc()).all()
             rollcall_data = []
             
             for rollcall in rollcalls:
@@ -1624,7 +1624,7 @@ def bill_details_page(bill_id):
                     'is_original': cosponsor.is_original
                 })
             
-            rcs = session.query(Rollcall).filter(Rollcall.bill_id == bill_id).all()
+            rcs = session.query(Rollcall).filter(Rollcall.bill_id == bill_id).order_by(Rollcall.date.desc(), Rollcall.rc_number.desc()).all()
             print(f"Bill {bill_id}: found {len(rcs)} roll calls")
             
             return render_template('bill.html', bill=bill, sponsor=sponsor, cosponsors=cos_rows, rollcalls=rcs)
@@ -2538,6 +2538,14 @@ def cosponsorship_clusters_page():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+@app.route('/tests')
+def tests_page():
+    """Regression tests page for development."""
+    try:
+        return render_template('tests.html')
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 @app.route('/api/clusters/report')
 def api_clusters_report():
     """Generate comprehensive report data for cluster analysis.
@@ -3181,13 +3189,13 @@ def generate_cluster_description(cid, size, parts, states, badge_counts, pa_pos,
     description = " ".join(description_parts)
     
     # Ensure description isn't too long
-    if len(description) > 120:
+    if len(description) > 200:
         # Truncate but keep it meaningful
         words = description.split()
         truncated = []
         char_count = 0
         for word in words:
-            if char_count + len(word) + 1 > 120:
+            if char_count + len(word) + 1 > 200:
                 break
             truncated.append(word)
             char_count += len(word) + 1

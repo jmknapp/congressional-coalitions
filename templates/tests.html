@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Regression Tests - Congressional Coalitions</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .test-section {
+            margin-bottom: 2rem;
+        }
+        .test-result {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-radius: 0.25rem;
+        }
+        .test-pass {
+            background-color: #d1edff;
+            border-left: 4px solid #0d6efd;
+        }
+        .test-fail {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+        .test-pending {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .test-running {
+            background-color: #e2e3e5;
+            border-left: 4px solid #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-vote-yea me-2"></i>Congressional Coalitions
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1><i class="fas fa-vial me-2"></i>Regression Tests</h1>
+                <p class="text-muted">Automated tests to verify system functionality</p>
+            </div>
+        </div>
+
+        <!-- Test Controls -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-play me-2"></i>Test Controls</h5>
+                    </div>
+                    <div class="card-body">
+                        <button id="run-all-tests" class="btn btn-primary me-2">
+                            <i class="fas fa-play me-1"></i>Run All Tests
+                        </button>
+                        <button id="run-api-tests" class="btn btn-outline-primary me-2">
+                            <i class="fas fa-code me-1"></i>API Tests Only
+                        </button>
+                        <button id="run-database-tests" class="btn btn-outline-success me-2">
+                            <i class="fas fa-database me-1"></i>Database Tests Only
+                        </button>
+                        <span id="test-status" class="badge bg-secondary ms-2">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test Results -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-clipboard-check me-2"></i>Test Results</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="test-results">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Click "Run All Tests" to begin testing
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let testsRunning = false;
+
+        // Test definitions
+        const tests = {
+            api: [
+                {
+                    name: "Dashboard API",
+                    endpoint: "/api/dashboard",
+                    description: "Test main dashboard API endpoint"
+                },
+                {
+                    name: "Members API",
+                    endpoint: "/api/members",
+                    description: "Test members API endpoint"
+                },
+                {
+                    name: "Bills API",
+                    endpoint: "/api/bills",
+                    description: "Test bills API endpoint"
+                },
+                {
+                    name: "Roll Calls API",
+                    endpoint: "/api/rollcalls",
+                    description: "Test roll calls API endpoint"
+                },
+                {
+                    name: "Co-sponsorship Clusters API",
+                    endpoint: "/api/cosponsorship-clusters",
+                    description: "Test co-sponsorship clusters API endpoint"
+                }
+            ],
+            database: [
+                {
+                    name: "Database Connection",
+                    endpoint: "/api/dashboard",
+                    description: "Test database connectivity"
+                },
+                {
+                    name: "Member Data Integrity",
+                    endpoint: "/api/members",
+                    description: "Verify member data structure"
+                },
+                {
+                    name: "Bill Data Integrity",
+                    endpoint: "/api/bills",
+                    description: "Verify bill data structure"
+                }
+            ]
+        };
+
+        // Event listeners
+        document.getElementById('run-all-tests').addEventListener('click', () => runTests('all'));
+        document.getElementById('run-api-tests').addEventListener('click', () => runTests('api'));
+        document.getElementById('run-database-tests').addEventListener('click', () => runTests('database'));
+
+        async function runTests(testType) {
+            if (testsRunning) return;
+            
+            testsRunning = true;
+            updateTestStatus('Running', 'warning');
+            clearTestResults();
+
+            const testList = testType === 'all' ? [...tests.api, ...tests.database] : tests[testType];
+            
+            for (const test of testList) {
+                await runSingleTest(test);
+            }
+
+            testsRunning = false;
+            updateTestStatus('Complete', 'success');
+        }
+
+        async function runSingleTest(test) {
+            const resultDiv = createTestResult(test, 'running');
+            document.getElementById('test-results').appendChild(resultDiv);
+
+            try {
+                const response = await fetch(test.endpoint);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    updateTestResult(resultDiv, 'pass', `✓ Passed (${response.status})`);
+                } else {
+                    updateTestResult(resultDiv, 'fail', `✗ Failed (${response.status}): ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                updateTestResult(resultDiv, 'fail', `✗ Error: ${error.message}`);
+            }
+        }
+
+        function createTestResult(test, status) {
+            const div = document.createElement('div');
+            div.className = `test-result test-${status}`;
+            div.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${test.name}</strong>
+                        <br>
+                        <small class="text-muted">${test.description}</small>
+                    </div>
+                    <div class="test-status">
+                        ${status === 'running' ? '<i class="fas fa-spinner fa-spin"></i> Running...' : ''}
+                    </div>
+                </div>
+            `;
+            return div;
+        }
+
+        function updateTestResult(resultDiv, status, message) {
+            resultDiv.className = `test-result test-${status}`;
+            const statusDiv = resultDiv.querySelector('.test-status');
+            statusDiv.innerHTML = message;
+        }
+
+        function clearTestResults() {
+            document.getElementById('test-results').innerHTML = '';
+        }
+
+        function updateTestStatus(status, type) {
+            const statusElement = document.getElementById('test-status');
+            statusElement.textContent = status;
+            statusElement.className = `badge bg-${type} ms-2`;
+        }
+    </script>
+</body>
+</html>

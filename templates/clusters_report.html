@@ -593,6 +593,7 @@
                   ${comp.top_rollcalls_pos?.slice(0, 3).map(rc => `
                     <li class="rollcall-item">
                       <strong><a href="/vote/${rc.rollcall_id}" target="_blank">${rc.rollcall_id}</a></strong>
+                      ${rc.bill_id && rc.title ? `<br><a href="/bill/${rc.bill_id}" target="_blank" class="text-primary">${rc.title}</a>` : ''}
                       <br><small>${rc.question || 'No question'}</small>
                       <br><small class="text-muted">Weight: ${rc.weight?.toFixed(3) || 'N/A'}</small>
                     </li>
@@ -605,6 +606,7 @@
                   ${comp.top_rollcalls_neg?.slice(0, 3).map(rc => `
                     <li class="rollcall-item negative">
                       <strong><a href="/vote/${rc.rollcall_id}" target="_blank">${rc.rollcall_id}</a></strong>
+                      ${rc.bill_id && rc.title ? `<br><a href="/bill/${rc.bill_id}" target="_blank" class="text-primary">${rc.title}</a>` : ''}
                       <br><small>${rc.question || 'No question'}</small>
                       <br><small class="text-muted">Weight: ${rc.weight?.toFixed(3) || 'N/A'}</small>
                     </li>

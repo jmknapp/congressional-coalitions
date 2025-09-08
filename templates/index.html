@@ -508,6 +508,12 @@
                 actblueLink.style.display = 'block';
             }
             
+            // Show Developer Tools links
+            const devLinks = document.getElementById('dev-mode-links');
+            if (devLinks) {
+                devLinks.style.display = 'block';
+            }
+            
             // console.log('🚀 Developer Mode ENABLED - Caucus Management & ActBlue URLs available');
         }
         
@@ -531,6 +537,12 @@
             const actblueLink = document.getElementById('actblue-management-link');
             if (actblueLink) {
                 actblueLink.style.display = 'none';
+            }
+            
+            // Hide Developer Tools links
+            const devLinks = document.getElementById('dev-mode-links');
+            if (devLinks) {
+                devLinks.style.display = 'none';
             }
             
             // console.log('🔒 Developer Mode DISABLED - Management tools hidden');
@@ -631,6 +643,13 @@
                     <a href="/cosponsorship-clusters" class="btn btn-outline-info btn-sm" target="_blank">
                         <i class="fas fa-users me-1"></i>Co-sponsorship Clusters
                     </a>
+                    <!-- Dev Mode Links -->
+                    <div id="dev-mode-links" style="display: none;" class="mt-3">
+                        <h6 class="text-muted mb-2">Developer Tools</h6>
+                        <a href="/tests" class="btn btn-outline-warning btn-sm" target="_blank">
+                            <i class="fas fa-vial me-1"></i>Regression Tests
+                        </a>
+                    </div>
                 </div>
                 <div class="col-md-6 text-md-end">
                     <small class="text-muted">

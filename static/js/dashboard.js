@@ -261,12 +261,7 @@ async function loadRollcalls() {
         
         tbody.innerHTML = '';
         
-        // Sort rollcalls by date descending (most recent first)
-        rollcalls.sort((a, b) => {
-            const dateA = a.date ? new Date(a.date) : new Date(0);
-            const dateB = b.date ? new Date(b.date) : new Date(0);
-            return dateB - dateA;
-        });
+        // Roll calls are already sorted by the backend (date desc, then roll call number desc)
         
         rollcalls.forEach(rollcall => {
             const date = rollcall.date ? new Date(rollcall.date).toLocaleDateString() : '';
