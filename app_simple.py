@@ -19,8 +19,9 @@ from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor
 app = Flask(__name__)
 CORS(app)
 
-# Set database URL
-os.environ['DATABASE_URL'] = 'mysql://congressional:congressional123@localhost/congressional_coalitions'
+# Set database URL from environment variable (no hardcoded credentials)
+if not os.environ.get('DATABASE_URL'):
+    raise ValueError("DATABASE_URL environment variable must be set. Example: mysql://user:password@localhost/database")
 
 @app.route('/')
 def index():

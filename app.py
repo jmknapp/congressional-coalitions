@@ -240,6 +240,40 @@ cache = Cache(app)
 logging.basicConfig(level=logging.INFO)
 security_logger = logging.getLogger('security')
 
+# Security headers middleware
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses."""
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'DENY'
+    
+    # Enable XSS protection
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    
+    # Referrer policy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Content Security Policy (basic)
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' https://cdnjs.cloudflare.com; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+    
+    # Strict Transport Security (only in production)
+    if os.environ.get('FLASK_ENV') == 'production':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    
+    return response
+
 def normalize_for_sorting(text):
     """Remove accents and diacritics from text for consistent alphabetical sorting."""
     # Normalize unicode characters (NFD = Canonical Decomposition)
@@ -302,9 +336,9 @@ def force_https():
 # See scripts/precalcul
 # ate_ideology.py for the calculation logic.
 
-# Set database URL
-
-os.environ['DATABASE_URL'] = 'mysql://congressional:congressional123@localhost/congressional_coalitions'
+# Set database URL from environment variable (no hardcoded credentials)
+if not os.environ.get('DATABASE_URL'):
+    raise ValueError("DATABASE_URL environment variable must be set. Example: mysql://user:password@localhost/database")
 
 @app.route('/')
 def index():
@@ -2717,15 +2751,38 @@ def docs_index():
 
 @app.route('/docs/<path:filename>')
 def docs_file(filename):
-    """Serve documentation files."""
+    """Serve documentation files with enhanced security."""
     try:
-        # Security: only allow .md files and prevent directory traversal
-        if not filename.endswith('.md') or '..' in filename:
+        # Enhanced security checks
+        if not filename.endswith('.md'):
             return "File not found", 404
         
-        file_path = os.path.join('docs', filename)
-        if not os.path.exists(file_path):
+        # Prevent directory traversal attacks
+        if '..' in filename or filename.startswith('/') or '\\' in filename:
             return "File not found", 404
+        
+        # Normalize path to prevent encoded traversal attempts
+        normalized_filename = os.path.normpath(filename)
+        if normalized_filename != filename or '..' in normalized_filename:
+            return "File not found", 404
+        
+        # Construct safe file path
+        docs_dir = os.path.abspath('docs')
+        file_path = os.path.join(docs_dir, normalized_filename)
+        
+        # Ensure file is within docs directory (prevent path traversal)
+        if not os.path.commonpath([docs_dir, file_path]) == docs_dir:
+            return "File not found", 404
+        
+        # Check if file exists and is readable
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return "File not found", 404
+        
+        # Check file size (prevent serving large files)
+        file_size = os.path.getsize(file_path)
+        MAX_FILE_SIZE = 1024 * 1024  # 1MB limit
+        if file_size > MAX_FILE_SIZE:
+            return "File too large", 413
         
         # Read and convert markdown to HTML
         with open(file_path, 'r', encoding='utf-8') as f:

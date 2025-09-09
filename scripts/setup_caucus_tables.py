@@ -52,7 +52,9 @@ def setup_caucus_tables():
     print("Creating caucus tables...")
     
     # Create database engine
-    database_url = os.environ.get('DATABASE_URL', 'mysql://congressional:congressional123@localhost/congressional_coalitions')
+    database_url = os.environ.get('DATABASE_URL')
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable must be set. Example: mysql://user:password@localhost/database")
     engine = create_engine(database_url, echo=False)
     
     # Create tables

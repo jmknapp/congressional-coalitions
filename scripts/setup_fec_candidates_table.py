@@ -74,7 +74,9 @@ class FECCandidate(Base):
 def setup_fec_candidates_table():
     """Create the fec_candidates table."""
     # Database connection
-    database_url = os.getenv('DATABASE_URL', 'mysql://congressional:congressional123@localhost/congressional_coalitions')
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable must be set. Example: mysql://user:password@localhost/database")
     engine = create_engine(database_url)
     
     try:

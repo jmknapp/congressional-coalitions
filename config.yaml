@@ -2,7 +2,7 @@
 
 # Database Configuration
 database:
-  url: "mysql://congressional:congressional123@localhost/congressional_coalitions"
+  url: "${DATABASE_URL}"  # Use environment variable for security
   pool_size: 10
   max_overflow: 20
   pool_recycle: 3600

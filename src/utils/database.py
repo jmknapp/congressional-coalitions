@@ -17,7 +17,9 @@ class DatabaseManager:
     
     def __init__(self, database_url: Optional[str] = None):
         # Use the congressional user that was previously set up
-        self.database_url = database_url or os.getenv('DATABASE_URL', 'mysql://congressional:congressional123@localhost/congressional_coalitions')
+        self.database_url = database_url or os.getenv('DATABASE_URL')
+        if not self.database_url:
+            raise ValueError("DATABASE_URL environment variable must be set. Example: mysql://user:password@localhost/database")
         self.engine = None
         self.SessionLocal = None
         self._setup_engine()
