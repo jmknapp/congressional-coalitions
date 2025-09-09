@@ -2289,6 +2289,15 @@ def format_challenger_names():
 def verify_dev_password():
     """Verify developer mode password with enhanced security."""
     try:
+        # If DEV_MODE is disabled via environment variable, reject all attempts
+        if not DEV_MODE:
+            client_ip = get_remote_address()
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, "Dev mode disabled via environment variable")
+            return jsonify({
+                'success': False,
+                'error': 'Developer mode is disabled'
+            }), 403
+        
         # Get client IP for logging
         client_ip = get_remote_address()
         
@@ -2347,6 +2356,17 @@ def verify_dev_password():
 def dev_session_status():
     """Check developer session status."""
     try:
+        # If DEV_MODE is disabled via environment variable, never allow dev mode
+        if not DEV_MODE:
+            # Aggressively clear any existing session
+            session.pop('dev_mode', None)
+            session.pop('dev_mode_expires', None)
+            session.permanent = False
+            return jsonify({
+                'success': True,
+                'dev_mode': False
+            })
+        
         if is_dev_session_valid():
             return jsonify({
                 'success': True,
@@ -5236,6 +5256,20 @@ def get_fec_scheduler_status():
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/debug-session', methods=['GET'])
+def debug_session():
+    """Debug endpoint to see what's in the session."""
+    try:
+        return jsonify({
+            'session_data': dict(session),
+            'dev_mode_env': DEV_MODE,
+            'has_dev_mode': 'dev_mode' in session,
+            'has_expires': 'dev_mode_expires' in session,
+            'session_permanent': session.permanent
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Allow overriding host/port via environment for local dev without touching prod defaults

@@ -1,0 +1,5 @@
+[33mf288169[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix production deployment issues
+[33m65d5e08[m 🔒 CRITICAL SECURITY FIXES: Remove hardcoded credentials, add security headers
+[33md549cd6[m Fix HTTP 429 rate limiting errors for incumbent API
+[33m21c1720[m Add better error handling for incumbent API requests
+[33mf87c1d8[m Update project files and add security documentation
