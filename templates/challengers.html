@@ -1245,6 +1245,16 @@
                 fetch(`/api/incumbent/${challenger.challenger_state}/${challenger.challenger_district}`)
                 .then(response => {
                     console.log(`Response for ${challenger.challenger_state}-${challenger.challenger_district}:`, response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        return response.text().then(text => {
+                            console.error(`Expected JSON but got: ${contentType}. Response:`, text.substring(0, 200));
+                            throw new Error(`Expected JSON but got ${contentType}`);
+                        });
+                    }
                     return response.json();
                 })
                 .then(data => {
@@ -1301,7 +1311,7 @@
                     }
                 })
                 .catch(error => {
-                    console.error('Error loading incumbent info:', error);
+                    console.error(`Error loading incumbent info for ${challenger.challenger_state}-${challenger.challenger_district}:`, error);
                     const incumbentDiv = document.getElementById(`incumbent-${challenger.id}`);
                     if (incumbentDiv) {
                         incumbentDiv.innerHTML = `
@@ -1312,6 +1322,7 @@
                             <div class="flex-grow-1">
                                 <div class="fw-semibold text-dark">Error Loading</div>
                                 <div class="small text-muted">${challenger.challenger_state}-${challenger.challenger_district}</div>
+                                <div class="small text-danger">${error.message}</div>
                             </div>
                         `;
                     }
