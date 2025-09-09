@@ -223,7 +223,7 @@ CORS(app, origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','))
 # Configure rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["1000 per day", "200 per hour"]
 )
 limiter.init_app(app)
 
@@ -2347,6 +2347,8 @@ def dev_logout():
         }), 500
 
 @app.route('/api/incumbent/<state>/<int:district>')
+@limiter.exempt  # Exempt from rate limiting since this is called frequently for UI
+@cache.cached(timeout=300)  # Cache for 5 minutes
 def get_incumbent(state, district):
     """Get incumbent information for a specific state and district."""
     try:
