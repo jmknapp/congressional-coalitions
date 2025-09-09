@@ -9,15 +9,24 @@ import sys
 import json
 import unicodedata
 import requests
-from datetime import datetime, date
-from flask import Flask, render_template, jsonify, request, send_file, Response
+import hashlib
+import secrets
+import logging
+from datetime import datetime, date, timedelta
+from flask import Flask, render_template, jsonify, request, send_file, Response, session, redirect
 from flask_cors import CORS
 from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from io import BytesIO
 import re # Added for markdown conversion
 
 # Development mode check
 DEV_MODE = os.environ.get('DEV_MODE', 'false').lower() == 'true'
+
+# Security configuration
+DEV_PASSWORD = os.environ.get('DEV_PASSWORD', secrets.token_urlsafe(32))  # Generate secure default
+DEV_SESSION_TIMEOUT = int(os.environ.get('DEV_SESSION_TIMEOUT', '7200'))  # 2 hours default
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -200,7 +209,23 @@ def load_caucus_data():
     return caucus_data
 
 app = Flask(__name__)
-CORS(app)
+
+# Security configuration
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', secrets.token_urlsafe(32))
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV', 'production') == 'production'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=DEV_SESSION_TIMEOUT)
+
+# Configure CORS with security restrictions
+CORS(app, origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','))
+
+# Configure rate limiting
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+limiter.init_app(app)
 
 # Configure caching
 cache_config = {
@@ -211,6 +236,10 @@ cache_config = {
 app.config.update(cache_config)
 cache = Cache(app)
 
+# Configure logging for security events
+logging.basicConfig(level=logging.INFO)
+security_logger = logging.getLogger('security')
+
 def normalize_for_sorting(text):
     """Remove accents and diacritics from text for consistent alphabetical sorting."""
     # Normalize unicode characters (NFD = Canonical Decomposition)
@@ -218,6 +247,56 @@ def normalize_for_sorting(text):
     # Filter out diacritical marks (category 'Mn')
     without_accents = ''.join(char for char in normalized if unicodedata.category(char) != 'Mn')
     return without_accents
+
+# Security helper functions
+def hash_password(password):
+    """Hash password using SHA-256 with salt."""
+    salt = os.environ.get('DEV_PASSWORD_SALT', 'default_salt_change_in_production')
+    return hashlib.sha256((password + salt).encode()).hexdigest()
+
+def verify_password(password):
+    """Verify password against stored hash."""
+    hashed_input = hash_password(password)
+    stored_hash = hash_password(DEV_PASSWORD)
+    return hashed_input == stored_hash
+
+def log_security_event(event_type, ip_address, success=False, details=""):
+    """Log security events for audit trail."""
+    timestamp = datetime.now().isoformat()
+    status = "SUCCESS" if success else "FAILED"
+    security_logger.info(f"SECURITY_EVENT: {event_type} | {status} | IP: {ip_address} | {details} | {timestamp}")
+
+def is_dev_session_valid():
+    """Check if developer session is valid."""
+    if 'dev_mode' not in session:
+        return False
+    
+    if 'dev_mode_expires' not in session:
+        return False
+    
+    return datetime.now() < session['dev_mode_expires']
+
+def set_dev_session():
+    """Set developer mode session with expiration."""
+    session['dev_mode'] = True
+    session['dev_mode_expires'] = datetime.now() + timedelta(seconds=DEV_SESSION_TIMEOUT)
+    session.permanent = True
+
+def clear_dev_session():
+    """Clear developer mode session."""
+    session.pop('dev_mode', None)
+    session.pop('dev_mode_expires', None)
+
+# HTTPS enforcement middleware (production only)
+@app.before_request
+def force_https():
+    """Force HTTPS in production only."""
+    # Only enforce HTTPS in production mode
+    if (os.environ.get('FLASK_ENV', 'development') == 'production' and 
+        not request.is_secure and 
+        app.config.get('SESSION_COOKIE_SECURE', False)):
+        if request.headers.get('X-Forwarded-Proto') != 'https':
+            return redirect(request.url.replace('http://', 'https://'), code=301)
 
 # Note: Ideological profiles are now pre-calculated and cached for performance.
 # See scripts/precalcul
@@ -2170,26 +2249,97 @@ def format_challenger_names():
         }), 500
 
 @app.route('/api/verify-dev-password', methods=['POST'])
+@limiter.limit("5 per minute")  # Rate limiting for password attempts
 def verify_dev_password():
-    """Verify developer mode password."""
+    """Verify developer mode password with enhanced security."""
     try:
+        # Get client IP for logging
+        client_ip = get_remote_address()
+        
+        # Validate request
+        if not request.is_json:
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, "Invalid content type")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid request format'
+            }), 400
+        
         data = request.get_json()
-        password = data.get('password', '')
+        if not data or 'password' not in data:
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, "Missing password field")
+            return jsonify({
+                'success': False,
+                'error': 'Password required'
+            }), 400
         
-        # You can change this password or make it configurable
-        correct_password = 'dev2026'
+        password = data.get('password', '').strip()
         
-        if password == correct_password:
+        # Validate password length and format
+        if len(password) < 8 or len(password) > 128:
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, "Invalid password length")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid password format'
+            }), 400
+        
+        # Verify password
+        if verify_password(password):
+            # Set secure session
+            set_dev_session()
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, True, "Password verified successfully")
             return jsonify({
                 'success': True,
-                'message': 'Password verified'
+                'message': 'Password verified',
+                'session_expires': session['dev_mode_expires'].isoformat()
             })
         else:
+            log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, "Incorrect password")
             return jsonify({
                 'success': False,
                 'error': 'Incorrect password'
             }), 401
             
+    except Exception as e:
+        client_ip = get_remote_address()
+        log_security_event("DEV_PASSWORD_ATTEMPT", client_ip, False, f"Server error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Internal server error'
+        }), 500
+
+@app.route('/api/dev-session-status', methods=['GET'])
+def dev_session_status():
+    """Check developer session status."""
+    try:
+        if is_dev_session_valid():
+            return jsonify({
+                'success': True,
+                'dev_mode': True,
+                'session_expires': session['dev_mode_expires'].isoformat()
+            })
+        else:
+            clear_dev_session()  # Clean up expired session
+            return jsonify({
+                'success': True,
+                'dev_mode': False
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/dev-logout', methods=['POST'])
+def dev_logout():
+    """Logout from developer mode."""
+    try:
+        client_ip = get_remote_address()
+        log_security_event("DEV_LOGOUT", client_ip, True, "Developer mode logout")
+        clear_dev_session()
+        return jsonify({
+            'success': True,
+            'message': 'Logged out successfully'
+        })
     except Exception as e:
         return jsonify({
             'success': False,

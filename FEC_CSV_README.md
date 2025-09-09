@@ -48,7 +48,7 @@ python process_fec_csv.py /path/to/your/fec_data.csv
 ### Method 2: Using the web interface
 1. Start the Flask app: `python app.py`
 2. Go to `/fec-candidates` page
-3. Enable developer mode (Shift+Ctrl+D, password: `dev2024`)
+3. Enable developer mode (Shift+Ctrl+D, password required - set via DEV_PASSWORD environment variable)
 4. Click "Download Latest Data" button
 
 ### Method 3: Using the service directly
