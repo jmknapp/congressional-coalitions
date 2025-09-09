@@ -223,7 +223,7 @@ CORS(app, origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','))
 # Configure rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["1000 per day", "200 per hour"]
+    default_limits=["10000 per day", "2000 per hour"]  # Increased limits temporarily
 )
 limiter.init_app(app)
 
@@ -326,7 +326,9 @@ def clear_dev_session():
 def force_https():
     """Force HTTPS in production only."""
     # Only enforce HTTPS in production mode
-    if (os.environ.get('FLASK_ENV', 'development') == 'production' and 
+    # Temporarily disabled to prevent redirect loops behind reverse proxy
+    # TODO: Configure reverse proxy to properly forward X-Forwarded-Proto header
+    if False and (os.environ.get('FLASK_ENV', 'development') == 'production' and 
         not request.is_secure and 
         app.config.get('SESSION_COOKIE_SECURE', False)):
         if request.headers.get('X-Forwarded-Proto') != 'https':
