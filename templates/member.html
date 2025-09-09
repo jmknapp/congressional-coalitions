@@ -132,6 +132,12 @@
                                             <i class="fas fa-donate me-2"></i>Support
                                         </a>
                                     </div>
+                                    <!-- Democratic Challengers Button (for Republican members) -->
+                                    <div id="challengers-link" style="display: none;">
+                                        <a id="challengers-button" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-success btn-lg">
+                                            <i class="fas fa-vote-yea me-2"></i>Support Democratic Challengers!
+                                        </a>
+                                    </div>
                                 </div>
                                 <div class="col-md-4 text-end">
                                     <div class="row">
@@ -581,6 +587,11 @@
                 displayActBlueLink(member);
                 displayActBlueHeaderButton(member);
             }
+            
+            // Display challengers button for Republican members
+            if (member.party === 'R' || member.party === 'Republican') {
+                displayChallengersButton(member);
+            }
         }
         
         function displayActBlueLink(member) {
@@ -623,6 +634,31 @@
                 headerButton.className = 'btn btn-outline-primary btn-lg';
                 headerContainer.style.display = 'block';
             }
+        }
+        
+        function displayChallengersButton(member) {
+            const challengersButton = document.getElementById('challengers-button');
+            const challengersContainer = document.getElementById('challengers-link');
+            
+            // Check if there are challengers for this district
+            fetch(`/api/challengers/check/${member.state}/${member.district}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.has_challengers) {
+                    // Build URL with state and district parameters
+                    const challengersUrl = `/challengers?state=${member.state}&district=${member.district}`;
+                    challengersButton.href = challengersUrl;
+                    challengersContainer.style.display = 'block';
+                } else {
+                    // No challengers found, hide the button
+                    challengersContainer.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Error checking for challengers:', error);
+                // On error, hide the button to be safe
+                challengersContainer.style.display = 'none';
+            });
         }
         
         function showActBlueFallbackOptions(member) {

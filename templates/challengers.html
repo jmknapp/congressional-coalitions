@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+    <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -98,22 +98,25 @@
                     </div>
                 </div>
 
-                <!-- State Filter -->
+                <!-- State and District Filter -->
                 <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="d-flex align-items-center gap-3">
+                    <div class="col-md-8">
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
                             <label for="stateFilter" class="form-label mb-0 fw-semibold">
-                                <i class="fas fa-filter me-1"></i>Filter by State:
+                                <i class="fas fa-filter me-1"></i>Filter:
                             </label>
                             <select class="form-select" id="stateFilter" style="width: auto;">
                                 <option value="">All States</option>
+                            </select>
+                            <select class="form-select" id="districtFilter" style="width: auto;">
+                                <option value="">All Districts</option>
                             </select>
                             <button class="btn btn-outline-secondary btn-sm" id="clearFilter" style="display: none;">
                                 <i class="fas fa-times me-1"></i>Clear
                             </button>
                         </div>
                     </div>
-                    <div class="col-md-6 text-md-end">
+                    <div class="col-md-4 text-md-end">
                         <div id="filterResults" class="text-muted small"></div>
                     </div>
                 </div>
@@ -436,6 +439,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/dev-config.js') }}"></script>
     <script>
         // Global variables for filtering
         let allChallengers = [];
@@ -446,7 +450,8 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Check if developer mode was previously enabled (localStorage)
             if (localStorage.getItem('developerMode') === 'true') {
-                enableDeveloperMode();
+                // Still require password verification on page load
+                promptForDeveloperPassword();
             }
             
             // Listen for Shift+Ctrl+D key combination
@@ -461,12 +466,20 @@
             
             // State filter change handler
             document.getElementById('stateFilter').addEventListener('change', function() {
+                populateDistrictFilter();
+                filterChallengers();
+            });
+            
+            // District filter change handler
+            document.getElementById('districtFilter').addEventListener('change', function() {
                 filterChallengers();
             });
             
             // Clear filter button handler
             document.getElementById('clearFilter').addEventListener('click', function() {
                 document.getElementById('stateFilter').value = '';
+                document.getElementById('districtFilter').value = '';
+                populateDistrictFilter(); // Clear district options
                 filterChallengers();
             });
             
@@ -611,7 +624,11 @@
                 if (data.success) {
                     allChallengers = data.challengers;
                     populateStateFilter();
+                    populateDistrictFilter(); // Populate district filter on initial load
                     filterChallengers();
+                    
+                    // Apply URL parameters after challengers are loaded
+                    applyUrlParameters();
                 } else {
                     showAlert('Error loading challengers: ' + data.error, 'danger');
                 }
@@ -638,15 +655,52 @@
             });
         }
 
+        function populateDistrictFilter() {
+            const stateFilter = document.getElementById('stateFilter');
+            const districtFilter = document.getElementById('districtFilter');
+            const selectedState = stateFilter.value;
+            
+            if (selectedState) {
+                // Get districts for the selected state
+                const districts = [...new Set(
+                    allChallengers
+                        .filter(c => c.challenger_state === selectedState)
+                        .map(c => c.challenger_district)
+                )].sort((a, b) => a - b);
+                
+                // Clear existing options except "All Districts"
+                districtFilter.innerHTML = '<option value="">All Districts</option>';
+                
+                // Add district options
+                districts.forEach(district => {
+                    const option = document.createElement('option');
+                    option.value = district;
+                    option.textContent = `District ${district}`;
+                    districtFilter.appendChild(option);
+                });
+            } else {
+                // No state selected, clear district filter
+                districtFilter.innerHTML = '<option value="">All Districts</option>';
+            }
+        }
+
         function filterChallengers() {
             const selectedState = document.getElementById('stateFilter').value;
+            const selectedDistrict = document.getElementById('districtFilter').value;
             const clearButton = document.getElementById('clearFilter');
             const filterResults = document.getElementById('filterResults');
             
             if (selectedState) {
                 filteredChallengers = allChallengers.filter(c => c.challenger_state === selectedState);
-                clearButton.style.display = 'inline-block';
-                filterResults.textContent = `Showing ${filteredChallengers.length} challenger(s) from ${selectedState}`;
+                
+                if (selectedDistrict) {
+                    filteredChallengers = filteredChallengers.filter(c => c.challenger_district == selectedDistrict);
+                    clearButton.style.display = 'inline-block';
+                    filterResults.textContent = `Showing ${filteredChallengers.length} challenger(s) from ${selectedState}-${selectedDistrict}`;
+                } else {
+                    clearButton.style.display = 'inline-block';
+                    filterResults.textContent = `Showing ${filteredChallengers.length} challenger(s) from ${selectedState}`;
+                }
             } else {
                 filteredChallengers = allChallengers;
                 clearButton.style.display = 'none';
@@ -661,6 +715,41 @@
             editButtons.forEach(button => {
                 button.style.display = developerMode ? 'block' : 'none';
             });
+        }
+
+        function applyUrlParameters() {
+            // Check for URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const stateParam = urlParams.get('state');
+            const districtParam = urlParams.get('district');
+            
+            // Auto-select state if provided in URL
+            if (stateParam) {
+                const stateFilter = document.getElementById('stateFilter');
+                if (stateFilter) {
+                    stateFilter.value = stateParam;
+                    
+                    // Populate district filter for the selected state
+                    populateDistrictFilter();
+                    
+                    // Auto-select district if provided in URL
+                    if (districtParam) {
+                        const districtFilter = document.getElementById('districtFilter');
+                        if (districtFilter) {
+                            districtFilter.value = districtParam;
+                        }
+                    }
+                    
+                    filterChallengers();
+                    
+                    // Show a message about the filter
+                    if (districtParam) {
+                        showAlert(`Showing challengers for ${stateParam}-${districtParam}`, 'info');
+                    } else {
+                        showAlert(`Showing challengers for ${stateParam}`, 'info');
+                    }
+                }
+            }
         }
 
         function displayChallengers(challengers) {
@@ -827,7 +916,10 @@
                                      onload="console.log('Photo loaded successfully for ${incumbent.bioguide_id}');">
                             </div>
                             <div class="flex-grow-1">
-                                <div class="fw-semibold text-dark">${escapeHtml(incumbent.name)}</div>
+                                <div class="fw-semibold text-dark d-flex align-items-center">
+                                    ${escapeHtml(incumbent.name)}
+                                    ${generateIncumbentBadges(incumbent)}
+                                </div>
                                 <div class="small text-muted">
                                     <span class="${partyColor}">${incumbent.party}</span> • ${incumbent.state}-${incumbent.district}
                                 </div>
@@ -889,6 +981,25 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function generateIncumbentBadges(incumbent) {
+            let badges = '';
+            
+            // Only show badges for Republican incumbents
+            if (incumbent.party === 'R') {
+                // Freedom Caucus badge
+                if (incumbent.is_freedom_caucus) {
+                    badges += '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view Freedom Caucus information"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>';
+                }
+                
+                // MAGA Republican badge
+                if (incumbent.is_maga_republican) {
+                    badges += '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white ms-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Click to view MAGA Republicans information"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>';
+                }
+            }
+            
+            return badges;
         }
 
         function editChallenger(challengerId) {
@@ -970,7 +1081,21 @@
             if (developerMode) {
                 disableDeveloperMode();
             } else {
-                enableDeveloperMode();
+                promptForDeveloperPassword();
+            }
+        }
+        
+        async function promptForDeveloperPassword() {
+            const password = prompt('Enter developer mode password:');
+            if (password !== null) { // User didn't cancel
+                const isValid = await verifyDeveloperPassword(password);
+                if (isValid) {
+                    enableDeveloperMode();
+                } else {
+                    alert('Incorrect password. Developer mode not enabled.');
+                    // Clear any existing developer mode state on failed attempt
+                    localStorage.removeItem('developerMode');
+                }
             }
         }
         

@@ -1676,6 +1676,11 @@ def challengers_page():
     """2026 Democratic challengers page (dev mode only)."""
     return render_template('challengers.html')
 
+@app.route('/fec-candidates')
+def fec_candidates_page():
+    """FEC candidates database page."""
+    return render_template('fec_candidates.html')
+
 @app.route('/api/challengers', methods=['GET'])
 def get_challengers():
     """Get all 2026 challengers."""
@@ -1834,6 +1839,56 @@ def delete_challenger(challenger_id):
             'error': str(e)
         }), 500
 
+@app.route('/api/challengers/check/<state>/<int:district>')
+def check_challengers_for_district(state, district):
+    """Check if there are any challengers for a specific state and district."""
+    try:
+        with get_db_session() as session:
+            # Count challengers for this state/district
+            challenger_count = session.query(Challenger2026).filter(
+                Challenger2026.challenger_state == state,
+                Challenger2026.challenger_district == district
+            ).count()
+            
+            return jsonify({
+                'success': True,
+                'has_challengers': challenger_count > 0,
+                'challenger_count': challenger_count
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/verify-dev-password', methods=['POST'])
+def verify_dev_password():
+    """Verify developer mode password."""
+    try:
+        data = request.get_json()
+        password = data.get('password', '')
+        
+        # You can change this password or make it configurable
+        correct_password = 'dev2026'
+        
+        if password == correct_password:
+            return jsonify({
+                'success': True,
+                'message': 'Password verified'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Incorrect password'
+            }), 401
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/incumbent/<state>/<int:district>')
 def get_incumbent(state, district):
     """Get incumbent information for a specific state and district."""
@@ -1849,6 +1904,20 @@ def get_incumbent(state, district):
             print(f"Looking for incumbent in {state}-{district}")
             if member:
                 print(f"Found incumbent: {member.first} {member.last} ({member.member_id_bioguide})")
+                
+                # Get caucus membership data
+                caucus_data = load_caucus_data()
+                
+                # Check caucus memberships
+                is_freedom_caucus = member.member_id_bioguide in caucus_data['freedom_caucus']
+                is_progressive_caucus = member.member_id_bioguide in caucus_data['progressive_caucus']
+                is_blue_dog_coalition = member.member_id_bioguide in caucus_data['blue_dog_coalition']
+                is_maga_republican = member.member_id_bioguide in caucus_data['maga_republicans']
+                is_congressional_black_caucus = member.member_id_bioguide in caucus_data['congressional_black_caucus']
+                is_true_blue_democrat = member.member_id_bioguide in caucus_data['true_blue_democrats']
+                is_hispanic_caucus = member.member_id_bioguide in caucus_data['congressional_hispanic_caucus']
+                is_new_democrat_coalition = member.member_id_bioguide in caucus_data['new_democrat_coalition']
+                
                 return jsonify({
                     'success': True,
                     'incumbent': {
@@ -1856,7 +1925,15 @@ def get_incumbent(state, district):
                         'party': member.party,
                         'state': member.state,
                         'district': member.district,
-                        'bioguide_id': member.member_id_bioguide
+                        'bioguide_id': member.member_id_bioguide,
+                        'is_freedom_caucus': is_freedom_caucus,
+                        'is_progressive_caucus': is_progressive_caucus,
+                        'is_blue_dog_coalition': is_blue_dog_coalition,
+                        'is_maga_republican': is_maga_republican,
+                        'is_congressional_black_caucus': is_congressional_black_caucus,
+                        'is_true_blue_democrat': is_true_blue_democrat,
+                        'is_hispanic_caucus': is_hispanic_caucus,
+                        'is_new_democrat_coalition': is_new_democrat_coalition
                     }
                 })
             else:
@@ -4470,6 +4547,162 @@ def debug_bills_needing_updates(congress):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# FEC Candidate Data API Endpoints
+@app.route('/api/fec/candidates')
+def get_fec_candidates():
+    """Get FEC candidates with optional filtering."""
+    try:
+        from src.etl.fec_service import FECDataService
+        
+        # Get query parameters
+        office = request.args.get('office', 'H')
+        election_year = int(request.args.get('election_year', 2026))
+        state = request.args.get('state')
+        district = request.args.get('district')
+        party = request.args.get('party')
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        
+        # Initialize service and get candidates
+        service = FECDataService()
+        candidates = service.get_candidates_from_db(
+            office=office,
+            election_year=election_year,
+            state=state,
+            district=district,
+            party=party,
+            active_only=active_only
+        )
+        
+        return jsonify({
+            'success': True,
+            'candidates': candidates,
+            'count': len(candidates),
+            'filters': {
+                'office': office,
+                'election_year': election_year,
+                'state': state,
+                'district': district,
+                'party': party,
+                'active_only': active_only
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/fec/candidates/stats')
+def get_fec_candidates_stats():
+    """Get FEC candidates database statistics."""
+    try:
+        from src.etl.fec_service import FECDataService
+        
+        service = FECDataService()
+        stats = service.get_download_stats()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/fec/candidates/download', methods=['POST'])
+def trigger_fec_download():
+    """Trigger a manual FEC candidate download."""
+    try:
+        from src.etl.fec_service import FECDataService
+        
+        # Get request parameters
+        data = request.get_json() or {}
+        force_update = data.get('force_update', False)
+        office = data.get('office', 'H')
+        election_year = data.get('election_year', 2026)
+        state = data.get('state')
+        
+        # Initialize service and run download
+        service = FECDataService()
+        stats = service.download_and_store_candidates(
+            office=office,
+            election_year=election_year,
+            state=state,
+            force_update=force_update
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'FEC download completed successfully',
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/fec/candidates/<candidate_id>')
+def get_fec_candidate_detail(candidate_id):
+    """Get detailed information for a specific FEC candidate."""
+    try:
+        from src.etl.fec_service import FECDataService
+        from scripts.setup_fec_candidates_table import FECCandidate
+        
+        with get_db_session() as session:
+            candidate = session.query(FECCandidate).filter(
+                FECCandidate.candidate_id == candidate_id
+            ).first()
+            
+            if not candidate:
+                return jsonify({'success': False, 'error': 'Candidate not found'}), 404
+            
+            # Convert to dictionary
+            candidate_data = {
+                'id': candidate.id,
+                'candidate_id': candidate.candidate_id,
+                'name': candidate.name,
+                'party': candidate.party,
+                'office': candidate.office,
+                'state': candidate.state,
+                'district': candidate.district,
+                'election_year': candidate.election_year,
+                'election_season': candidate.election_season,
+                'incumbent_challenge_status': candidate.incumbent_challenge_status,
+                'total_receipts': candidate.total_receipts,
+                'total_disbursements': candidate.total_disbursements,
+                'cash_on_hand': candidate.cash_on_hand,
+                'debts_owed': candidate.debts_owed,
+                'principal_committee_id': candidate.principal_committee_id,
+                'principal_committee_name': candidate.principal_committee_name,
+                'active': candidate.active,
+                'candidate_status': candidate.candidate_status,
+                'created_at': candidate.created_at.isoformat() if candidate.created_at else None,
+                'updated_at': candidate.updated_at.isoformat() if candidate.updated_at else None,
+                'last_fec_update': candidate.last_fec_update.isoformat() if candidate.last_fec_update else None
+            }
+            
+            return jsonify({
+                'success': True,
+                'candidate': candidate_data
+            })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/fec/scheduler/status')
+def get_fec_scheduler_status():
+    """Get FEC scheduler status."""
+    try:
+        from src.etl.fec_scheduler import FECScheduler
+        
+        scheduler = FECScheduler()
+        status = scheduler.get_status()
+        
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Allow overriding host/port via environment for local dev without touching prod defaults

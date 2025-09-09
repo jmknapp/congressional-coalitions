@@ -1,0 +1,49 @@
+# FEC Data Service Configuration
+
+# FEC API Configuration
+fec:
+  api_key_env: "FEC_API_KEY"  # Environment variable name for API key
+  base_url: "https://api.open.fec.gov/v1"
+  rate_limit_delay: 0.1  # Seconds between requests (100ms = 10 requests/second)
+  timeout: 30  # Request timeout in seconds
+  max_retries: 3  # Maximum number of retries for failed requests
+
+# Download Configuration
+download:
+  default_office: "H"  # H for House, S for Senate, P for President
+  default_election_year: 2026
+  batch_size: 100  # Number of candidates to process in each batch
+  force_update_threshold_hours: 24  # Don't update if updated within this many hours
+
+# Scheduler Configuration
+scheduler:
+  daily_download_time: "06:00"  # UTC time for daily download
+  weekly_cleanup_day: "sunday"  # Day of week for cleanup
+  weekly_cleanup_time: "02:00"  # UTC time for weekly cleanup
+  health_check_interval_hours: 6  # Hours between health checks
+  cleanup_retention_days: 30  # Days to keep old candidate records
+
+# Database Configuration
+database:
+  table_name: "fec_candidates"
+  indexes:
+    - ["candidate_id"]
+    - ["office", "election_year"]
+    - ["state", "district"]
+    - ["party"]
+    - ["active"]
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/fec_service.log"
+  max_size_mb: 10
+  backup_count: 5
+
+# Error Handling
+error_handling:
+  max_consecutive_failures: 5
+  failure_backoff_minutes: 15
+  alert_on_failure: true
+  email_alerts: false  # Set to true to enable email alerts
+  email_recipients: []  # List of email addresses for alerts

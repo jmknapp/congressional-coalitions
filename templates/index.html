@@ -464,13 +464,15 @@
     <script src="{{ url_for('static', filename='js/dashboard.js') }}?v={{ range(1000, 9999) | random }}"></script>
     
     <!-- Developer Mode Script -->
+    <script src="{{ url_for('static', filename='js/dev-config.js') }}"></script>
     <script>
         // Developer mode functionality
         let developerMode = false;
         
         // Check if developer mode was previously enabled (localStorage)
         if (localStorage.getItem('developerMode') === 'true') {
-            enableDeveloperMode();
+            // Still require password verification on page load
+            promptForDeveloperPassword();
         }
         
         // Listen for Shift+Ctrl+D key combination
@@ -485,7 +487,21 @@
             if (developerMode) {
                 disableDeveloperMode();
             } else {
-                enableDeveloperMode();
+                promptForDeveloperPassword();
+            }
+        }
+        
+        async function promptForDeveloperPassword() {
+            const password = prompt('Enter developer mode password:');
+            if (password !== null) { // User didn't cancel
+                const isValid = await verifyDeveloperPassword(password);
+                if (isValid) {
+                    enableDeveloperMode();
+                } else {
+                    alert('Incorrect password. Developer mode not enabled.');
+                    // Clear any existing developer mode state on failed attempt
+                    localStorage.removeItem('developerMode');
+                }
             }
         }
         

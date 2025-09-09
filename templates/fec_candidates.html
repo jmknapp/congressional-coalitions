@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FEC US House Candidates for 2026 - Congressional Coalitions</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .candidate-card {
+            transition: all 0.2s ease;
+            border-left: 4px solid #0d6efd;
+        }
+        .candidate-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .candidate-name {
+            font-weight: 600;
+            color: #0d6efd;
+        }
+        .candidate-district {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .financial-metric {
+            font-size: 0.85rem;
+            color: #495057;
+        }
+        .party-badge {
+            font-size: 0.75rem;
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .stats-card .card-body {
+            padding: 1.5rem;
+        }
+        .filter-section {
+            background-color: #f8f9fa;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .download-section {
+            background-color: #e3f2fd;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-active { background-color: #28a745; }
+        .status-inactive { background-color: #dc3545; }
+        .status-unknown { background-color: #6c757d; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-university me-2"></i>
+                Congressional Coalitions
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/challengers" id="challengers-link" style="display: none;">
+                    <i class="fas fa-vote-yea me-1"></i>Challengers
+                </a>
+                <a class="nav-link active" href="/fec-candidates">
+                    <i class="fas fa-database me-1"></i>FEC Candidates
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h2 mb-1">
+                            <i class="fas fa-database me-2 text-primary"></i>
+                            FEC US House Candidates for 2026
+                        </h1>
+                        <p class="text-muted mb-0">Federal Election Commission candidate data for 2026 House elections</p>
+                    </div>
+                    <div id="download-section" style="display: none;">
+                        <button class="btn btn-success" onclick="triggerDownload()">
+                            <i class="fas fa-download me-1"></i>Download Latest Data
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Statistics Cards -->
+                <div class="row mb-4" id="stats-container">
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <h3 class="mb-1" id="total-candidates">-</h3>
+                                <p class="mb-0">Total Candidates</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <h3 class="mb-1" id="active-candidates">-</h3>
+                                <p class="mb-0">Active Candidates</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <h3 class="mb-1" id="house-2026">-</h3>
+                                <p class="mb-0">House 2026</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <h3 class="mb-1" id="last-update">-</h3>
+                                <p class="mb-0">Last Update</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Download Section (Dev Mode Only) -->
+                <div class="download-section" id="data-management-section" style="display: none;">
+                    <h5 class="mb-3">
+                        <i class="fas fa-sync me-2"></i>Data Management
+                    </h5>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <p class="mb-2">Download the latest candidate data from the FEC API. This process may take several minutes.</p>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="forceUpdate">
+                                <label class="form-check-label" for="forceUpdate">
+                                    Force update existing records (even if recently updated)
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-md-end">
+                            <button class="btn btn-primary" onclick="triggerDownload()">
+                                <i class="fas fa-download me-1"></i>Download Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Section -->
+                <div class="filter-section">
+                    <h5 class="mb-3">
+                        <i class="fas fa-filter me-2"></i>Filter Candidates
+                    </h5>
+                    <div class="row">
+                        <div class="col-md-2">
+                            <label for="candidateTypeFilter" class="form-label">Candidate Type</label>
+                            <select class="form-select" id="candidateTypeFilter">
+                                <option value="challengers">Challengers</option>
+                                <option value="all">ALL</option>
+                                <option value="incumbents">Incumbents</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="stateFilter" class="form-label">State</label>
+                            <select class="form-select" id="stateFilter">
+                                <option value="">All States</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="districtFilter" class="form-label">District</label>
+                            <select class="form-select" id="districtFilter">
+                                <option value="">All Districts</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="partyFilter" class="form-label">Party</label>
+                            <select class="form-select" id="partyFilter">
+                                <option value="">All Parties</option>
+                                <option value="DEM">Democratic</option>
+                                <option value="REP">Republican</option>
+                                <option value="IND">Independent</option>
+                                <option value="GRN">Green</option>
+                                <option value="LIB">Libertarian</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="financialsFilter" class="form-label">Financials</label>
+                            <select class="form-select" id="financialsFilter">
+                                <option value="">ALL</option>
+                                <option value="has_cash">Has cash on hand</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="sortBy" class="form-label">Sort By</label>
+                            <select class="form-select" id="sortBy">
+                                <option value="name">Name</option>
+                                <option value="state">State</option>
+                                <option value="receipts">Total Receipts</option>
+                                <option value="cash">Cash on Hand</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-12 d-flex justify-content-end">
+                            <button class="btn btn-outline-secondary" onclick="clearFilters()">
+                                <i class="fas fa-times me-1"></i>Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Candidate Count -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <div class="alert alert-info d-flex align-items-center">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <div>
+                                <strong id="candidate-count-text">Loading candidates...</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Candidates List -->
+                <div id="candidates-container">
+                    <div class="text-center py-5">
+                        <i class="fas fa-spinner fa-spin fa-2x text-muted mb-3"></i>
+                        <p class="text-muted">Loading candidates...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Candidate Detail Modal -->
+    <div class="modal fade" id="candidateDetailModal" tabindex="-1" aria-labelledby="candidateDetailModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="candidateDetailModalLabel">
+                        <i class="fas fa-user me-2"></i>Candidate Details
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="candidateDetailContent">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global variables
+        let allCandidates = [];
+        let filteredCandidates = [];
+        let developerMode = false;
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if developer mode was previously enabled (localStorage)
+            if (localStorage.getItem('developerMode') === 'true') {
+                // Still require password verification on page load
+                promptForDeveloperPassword();
+            }
+            
+            // Listen for Shift+Ctrl+D key combination
+            document.addEventListener('keydown', function(event) {
+                if (event.shiftKey && event.ctrlKey && event.key.toLowerCase() === 'd') {
+                    event.preventDefault();
+                    toggleDeveloperMode();
+                }
+            });
+            
+            loadStats();
+            loadCandidates();
+            
+            // Set up filter event listeners
+            document.getElementById('candidateTypeFilter').addEventListener('change', function() {
+                updateFiltersForCandidateType();
+                filterCandidates();
+            });
+            
+            document.getElementById('stateFilter').addEventListener('change', function() {
+                populateDistrictFilter();
+                filterCandidates();
+            });
+            
+            document.getElementById('districtFilter').addEventListener('change', filterCandidates);
+            document.getElementById('partyFilter').addEventListener('change', filterCandidates);
+            document.getElementById('financialsFilter').addEventListener('change', filterCandidates);
+            document.getElementById('sortBy').addEventListener('change', filterCandidates);
+        });
+
+        function loadStats() {
+            fetch('/api/fec/candidates/stats')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const stats = data.stats;
+                    document.getElementById('total-candidates').textContent = stats.total_candidates || 0;
+                    document.getElementById('active-candidates').textContent = stats.active_candidates || 0;
+                    document.getElementById('house-2026').textContent = stats.house_2026_candidates || 0;
+                    
+                    if (stats.last_update) {
+                        const lastUpdate = new Date(stats.last_update);
+                        document.getElementById('last-update').textContent = lastUpdate.toLocaleDateString();
+                    } else {
+                        document.getElementById('last-update').textContent = 'Never';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading stats:', error);
+            });
+        }
+
+        function loadCandidates() {
+            fetch('/api/fec/candidates?office=H&election_year=2026')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allCandidates = data.candidates;
+                    populateStateFilter();
+                    updateFiltersForCandidateType(); // Apply default filter
+                    populateDistrictFilter();
+                    filterCandidates();
+                } else {
+                    showAlert('Error loading candidates: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error loading candidates. Please try again.', 'danger');
+            });
+        }
+
+        function populateStateFilter() {
+            const stateFilter = document.getElementById('stateFilter');
+            const states = [...new Set(allCandidates.map(c => c.state))].sort();
+            
+            // Clear existing options except "All States"
+            stateFilter.innerHTML = '<option value="">All States</option>';
+            
+            // Add state options
+            states.forEach(state => {
+                if (state) {
+                    const option = document.createElement('option');
+                    option.value = state;
+                    option.textContent = state;
+                    stateFilter.appendChild(option);
+                }
+            });
+        }
+
+        function populateDistrictFilter() {
+            const stateFilter = document.getElementById('stateFilter');
+            const districtFilter = document.getElementById('districtFilter');
+            const selectedState = stateFilter.value;
+            
+            if (selectedState) {
+                // Get districts for the selected state
+                const districts = [...new Set(
+                    allCandidates
+                        .filter(c => c.state === selectedState)
+                        .map(c => c.district)
+                )].sort((a, b) => {
+                    // Handle numeric sorting for districts
+                    const aNum = parseInt(a) || 0;
+                    const bNum = parseInt(b) || 0;
+                    return aNum - bNum;
+                });
+                
+                // Clear existing options except "All Districts"
+                districtFilter.innerHTML = '<option value="">All Districts</option>';
+                
+                // Add district options
+                districts.forEach(district => {
+                    if (district) {
+                        const option = document.createElement('option');
+                        option.value = district;
+                        option.textContent = `District ${district}`;
+                        districtFilter.appendChild(option);
+                    }
+                });
+            } else {
+                // No state selected, clear district filter
+                districtFilter.innerHTML = '<option value="">All Districts</option>';
+            }
+        }
+
+        function updateFiltersForCandidateType() {
+            const candidateType = document.getElementById('candidateTypeFilter').value;
+            const partyFilter = document.getElementById('partyFilter');
+            
+            // Reset party filter (candidate type is handled in filterCandidates function)
+            partyFilter.value = '';
+            
+            // No automatic party filtering for the simplified candidate type selector
+            // Users can manually select party in the party dropdown
+        }
+
+        function filterCandidates() {
+            const selectedState = document.getElementById('stateFilter').value;
+            const selectedDistrict = document.getElementById('districtFilter').value;
+            const selectedParty = document.getElementById('partyFilter').value;
+            const selectedFinancials = document.getElementById('financialsFilter').value;
+            const candidateType = document.getElementById('candidateTypeFilter').value;
+            const sortBy = document.getElementById('sortBy').value;
+            
+            // Apply filters
+            filteredCandidates = allCandidates.filter(candidate => {
+                // Always show only active candidates
+                if (!candidate.active) return false;
+                
+                if (selectedState && candidate.state !== selectedState) return false;
+                if (selectedDistrict && candidate.district !== selectedDistrict) return false;
+                if (selectedParty && candidate.party !== selectedParty) return false;
+                
+                // Apply financials filter
+                if (selectedFinancials === 'has_cash' && (!candidate.cash_on_hand || candidate.cash_on_hand <= 0)) return false;
+                
+                // Apply candidate type filters
+                if (candidateType === 'incumbents') {
+                    // Incumbents typically have 'I' status
+                    const incumbentStatus = candidate.incumbent_challenge_status;
+                    if (!incumbentStatus || incumbentStatus !== 'I') return false;
+                } else if (candidateType === 'challengers') {
+                    // Challengers typically have 'C' status
+                    const challengeStatus = candidate.incumbent_challenge_status;
+                    if (!challengeStatus || challengeStatus !== 'C') return false;
+                }
+                // 'all' shows all candidates (no additional filtering)
+                
+                return true;
+            });
+            
+            // Sort candidates
+            filteredCandidates.sort((a, b) => {
+                switch (sortBy) {
+                    case 'name':
+                        return a.name.localeCompare(b.name);
+                    case 'state':
+                        return a.state.localeCompare(b.state) || (a.district || '').localeCompare(b.district || '');
+                    case 'receipts':
+                        return (b.total_receipts || 0) - (a.total_receipts || 0);
+                    case 'cash':
+                        return (b.cash_on_hand || 0) - (a.cash_on_hand || 0);
+                    default:
+                        return 0;
+                }
+            });
+            
+            displayCandidates(filteredCandidates);
+        }
+
+        function clearFilters() {
+            document.getElementById('candidateTypeFilter').value = 'challengers';
+            document.getElementById('stateFilter').value = '';
+            document.getElementById('districtFilter').value = '';
+            document.getElementById('partyFilter').value = '';
+            document.getElementById('financialsFilter').value = '';
+            document.getElementById('sortBy').value = 'name';
+            
+            updateFiltersForCandidateType();
+            populateDistrictFilter();
+            filterCandidates();
+        }
+
+        function updateCandidateCount(candidates) {
+            const countText = document.getElementById('candidate-count-text');
+            if (candidates.length === 0) {
+                countText.textContent = 'No candidates found matching your filters';
+            } else if (candidates.length === 1) {
+                countText.textContent = '1 candidate found';
+            } else {
+                countText.textContent = `${candidates.length.toLocaleString()} candidates found`;
+            }
+        }
+
+        function displayCandidates(candidates) {
+            updateCandidateCount(candidates);
+            const container = document.getElementById('candidates-container');
+            
+            if (candidates.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-5">
+                        <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No candidates found</h4>
+                        <p class="text-muted">Try adjusting your filters or download the latest data.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const html = `
+                <div class="row">
+                    ${candidates.map(candidate => `
+                        <div class="col-md-6 col-lg-4 mb-4">
+                            <div class="card candidate-card h-100" onclick="showCandidateDetail('${candidate.candidate_id}')" style="cursor: pointer;">
+                                <div class="card-body">
+                                    <div class="d-flex align-items-start mb-3">
+                                        <div class="rounded me-3 d-flex align-items-center justify-content-center bg-light" 
+                                             style="width: 60px; height: 60px;">
+                                            <i class="fas fa-user text-muted"></i>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <h5 class="card-title candidate-name mb-1">${escapeHtml(candidate.name)}</h5>
+                                            <p class="card-text candidate-district mb-0">
+                                                <i class="fas fa-map-marker-alt me-1"></i>
+                                                ${candidate.state}-${candidate.district || 'At-Large'}
+                                                <span class="badge bg-primary party-badge ms-2">${candidate.party || 'Unknown'}</span>
+                                            </p>
+                                            <div class="mt-1">
+                                                <span class="status-indicator ${candidate.active ? 'status-active' : 'status-inactive'}"></span>
+                                                <small class="text-muted">${candidate.active ? 'Active' : 'Inactive'}</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="row text-center">
+                                        <div class="col-6">
+                                            <div class="financial-metric">
+                                                <strong>$${(candidate.total_receipts || 0).toLocaleString()}</strong>
+                                                <br><small class="text-muted">Receipts</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="financial-metric">
+                                                <strong>$${(candidate.cash_on_hand || 0).toLocaleString()}</strong>
+                                                <br><small class="text-muted">Cash on Hand</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-footer text-muted">
+                                    <small>
+                                        <i class="fas fa-calendar me-1"></i>
+                                        Updated ${new Date(candidate.updated_at).toLocaleDateString()}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        function showCandidateDetail(candidateId) {
+            fetch(`/api/fec/candidates/${candidateId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const candidate = data.candidate;
+                    const modalContent = `
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Basic Information</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Name:</strong></td><td>${escapeHtml(candidate.name)}</td></tr>
+                                    <tr><td><strong>Party:</strong></td><td>${candidate.party || 'Unknown'}</td></tr>
+                                    <tr><td><strong>State:</strong></td><td>${candidate.state}</td></tr>
+                                    <tr><td><strong>District:</strong></td><td>${candidate.district || 'At-Large'}</td></tr>
+                                    <tr><td><strong>Status:</strong></td><td>${candidate.active ? 'Active' : 'Inactive'}</td></tr>
+                                    <tr><td><strong>Challenge Status:</strong></td><td>${candidate.incumbent_challenge_status || 'Unknown'}</td></tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Financial Information</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Total Receipts:</strong></td><td>$${(candidate.total_receipts || 0).toLocaleString()}</td></tr>
+                                    <tr><td><strong>Total Disbursements:</strong></td><td>$${(candidate.total_disbursements || 0).toLocaleString()}</td></tr>
+                                    <tr><td><strong>Cash on Hand:</strong></td><td>$${(candidate.cash_on_hand || 0).toLocaleString()}</td></tr>
+                                    <tr><td><strong>Debts Owed:</strong></td><td>$${(candidate.debts_owed || 0).toLocaleString()}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Committee Information</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>Principal Committee:</strong></td><td>${candidate.principal_committee_name || 'Unknown'}</td></tr>
+                                    <tr><td><strong>Committee ID:</strong></td><td>${candidate.principal_committee_id || 'Unknown'}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6>Metadata</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>FEC Candidate ID:</strong></td><td>${candidate.candidate_id}</td></tr>
+                                    <tr><td><strong>Last FEC Update:</strong></td><td>${candidate.last_fec_update ? new Date(candidate.last_fec_update).toLocaleString() : 'Unknown'}</td></tr>
+                                    <tr><td><strong>Database Updated:</strong></td><td>${candidate.updated_at ? new Date(candidate.updated_at).toLocaleString() : 'Unknown'}</td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('candidateDetailContent').innerHTML = modalContent;
+                    const modal = new bootstrap.Modal(document.getElementById('candidateDetailModal'));
+                    modal.show();
+                } else {
+                    showAlert('Error loading candidate details: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error loading candidate details. Please try again.', 'danger');
+            });
+        }
+
+        function triggerDownload() {
+            const forceUpdate = document.getElementById('forceUpdate').checked;
+            
+            if (!confirm(`Are you sure you want to download the latest FEC data? This may take several minutes.${forceUpdate ? ' (Force update enabled)' : ''}`)) {
+                return;
+            }
+            
+            // Show loading state
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Downloading...';
+            button.disabled = true;
+            
+            fetch('/api/fec/candidates/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    force_update: forceUpdate,
+                    office: 'H',
+                    election_year: 2026
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('FEC data download completed successfully!', 'success');
+                    loadStats();
+                    loadCandidates();
+                } else {
+                    showAlert('Error downloading FEC data: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error downloading FEC data. Please try again.', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                button.innerHTML = originalText;
+                button.disabled = false;
+            });
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            const container = document.querySelector('.container');
+            container.insertBefore(alertDiv, container.firstChild);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleDeveloperMode() {
+            if (developerMode) {
+                disableDeveloperMode();
+            } else {
+                promptForDeveloperPassword();
+            }
+        }
+        
+        async function promptForDeveloperPassword() {
+            const password = prompt('Enter developer mode password:');
+            if (password !== null) { // User didn't cancel
+                const isValid = await verifyDeveloperPassword(password);
+                if (isValid) {
+                    enableDeveloperMode();
+                } else {
+                    alert('Incorrect password. Developer mode not enabled.');
+                    // Clear any existing developer mode state on failed attempt
+                    localStorage.removeItem('developerMode');
+                }
+            }
+        }
+        
+        async function verifyDeveloperPassword(password) {
+            // Simple password verification - you can make this more secure
+            return password === 'dev2026';
+        }
+        
+        function enableDeveloperMode() {
+            developerMode = true;
+            localStorage.setItem('developerMode', 'true');
+            
+            // Show dev mode elements
+            document.getElementById('download-section').style.display = 'block';
+            document.getElementById('data-management-section').style.display = 'block';
+            document.getElementById('challengers-link').style.display = 'block';
+            
+            // Show dev mode indicator
+            showAlert('Developer Mode ENABLED - Download and management features visible', 'info');
+        }
+        
+        function disableDeveloperMode() {
+            developerMode = false;
+            localStorage.setItem('developerMode', 'false');
+            
+            // Hide dev mode elements
+            document.getElementById('download-section').style.display = 'none';
+            document.getElementById('data-management-section').style.display = 'none';
+            document.getElementById('challengers-link').style.display = 'none';
+            
+            // Show dev mode indicator
+            showAlert('Developer Mode DISABLED - Download and management features hidden', 'info');
+        }
+    </script>
+</body>
+</html>
