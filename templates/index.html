@@ -469,10 +469,10 @@
         // Developer mode functionality
         let developerMode = false;
         
-        // Check if developer mode was previously enabled (localStorage)
-        if (localStorage.getItem('developerMode') === 'true') {
-            // Still require password verification on page load
-            promptForDeveloperPassword();
+        // Check if developer mode session is still valid
+        if (isDeveloperModeSessionValid()) {
+            // Session is valid, enable developer mode without password prompt
+            enableDeveloperMode();
         }
         
         // Listen for Shift+Ctrl+D key combination
@@ -500,14 +500,14 @@
                 } else {
                     alert('Incorrect password. Developer mode not enabled.');
                     // Clear any existing developer mode state on failed attempt
-                    localStorage.removeItem('developerMode');
+                    clearDeveloperModeSession();
                 }
             }
         }
         
         function enableDeveloperMode() {
             developerMode = true;
-            localStorage.setItem('developerMode', 'true');
+            setDeveloperModeSession(true);
             
             // Show developer badge
             const devBadge = document.getElementById('dev-mode-badge');
@@ -544,7 +544,7 @@
         
         function disableDeveloperMode() {
             developerMode = false;
-            localStorage.setItem('developerMode', 'false');
+            clearDeveloperModeSession();
             
             // Hide developer badge
             const devBadge = document.getElementById('dev-mode-badge');

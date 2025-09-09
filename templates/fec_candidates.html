@@ -264,6 +264,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/dev-config.js') }}"></script>
     <script>
         // Global variables
         let allCandidates = [];
@@ -272,10 +273,10 @@
 
         // Load data on page load
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if developer mode was previously enabled (localStorage)
-            if (localStorage.getItem('developerMode') === 'true') {
-                // Still require password verification on page load
-                promptForDeveloperPassword();
+            // Check if developer mode session is still valid
+            if (isDeveloperModeSessionValid()) {
+                // Session is valid, enable developer mode without password prompt
+                enableDeveloperMode();
             }
             
             // Listen for Shift+Ctrl+D key combination
@@ -712,7 +713,7 @@
                 } else {
                     alert('Incorrect password. Developer mode not enabled.');
                     // Clear any existing developer mode state on failed attempt
-                    localStorage.removeItem('developerMode');
+                    clearDeveloperModeSession();
                 }
             }
         }
@@ -724,7 +725,7 @@
         
         function enableDeveloperMode() {
             developerMode = true;
-            localStorage.setItem('developerMode', 'true');
+            setDeveloperModeSession(true);
             
             // Show dev mode elements
             document.getElementById('download-section').style.display = 'block';
@@ -737,7 +738,7 @@
         
         function disableDeveloperMode() {
             developerMode = false;
-            localStorage.setItem('developerMode', 'false');
+            clearDeveloperModeSession();
             
             // Hide dev mode elements
             document.getElementById('download-section').style.display = 'none';
