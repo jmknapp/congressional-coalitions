@@ -66,6 +66,37 @@
             box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
             color: white;
         }
+        .image-tooltip {
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+        .image-tooltip:hover {
+            transform: scale(1.05);
+        }
+        .tooltip-inner {
+            max-width: 300px;
+            padding: 0;
+            background: transparent;
+            border: none;
+        }
+        .tooltip-inner img {
+            max-width: 250px;
+            max-height: 250px;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .image-tooltip-popup .tooltip-inner {
+            max-width: 300px;
+            padding: 0;
+            background: transparent;
+            border: none;
+        }
+        .image-tooltip-popup .tooltip-inner img {
+            max-width: 250px;
+            max-height: 250px;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
     </style>
 </head>
 <body>
@@ -1103,9 +1134,13 @@
                                     <div class="d-flex align-items-start mb-3">
                                         ${challenger.mugshot_image_filename ? `
                                             <img src="/static/challengers/mugshots/${escapeHtml(challenger.mugshot_image_filename)}" 
-                                                 class="rounded me-3" 
+                                                 class="rounded me-3 image-tooltip" 
                                                  style="width: 60px; height: 60px; object-fit: cover;" 
                                                  alt="${escapeHtml(challenger.challenger_name)}"
+                                                 data-bs-toggle="tooltip" 
+                                                 data-bs-placement="top" 
+                                                 data-bs-html="true"
+                                                 data-bs-title="<img src='/static/challengers/mugshots/${escapeHtml(challenger.mugshot_image_filename)}' alt='${escapeHtml(challenger.challenger_name)}' style='max-width: 250px; max-height: 250px; object-fit: cover;'>"
                                                  onerror="this.style.display='none'">
                                         ` : `
                                             <div class="rounded me-3 d-flex align-items-center justify-content-center bg-light" 
@@ -1196,6 +1231,9 @@
             
             // Update dev mode buttons visibility
             updateDevModeButtons();
+            
+            // Initialize tooltips for challenger images
+            initializeImageTooltips();
             
             // Load incumbent information for each challenger
             loadIncumbentInfo(challengers);
@@ -1304,6 +1342,17 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function initializeImageTooltips() {
+            // Initialize Bootstrap tooltips for challenger images
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('.image-tooltip[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl, {
+                    html: true,
+                    customClass: 'image-tooltip-popup'
+                });
+            });
         }
 
         function generateIncumbentBadges(incumbent) {
