@@ -80,7 +80,6 @@ def run_mysqldump():
         '--extended-insert',
         '--lock-tables=false',
         '--no-tablespaces',
-        '--skip-warnings',
         config['database']
     ]
     

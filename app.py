@@ -26,12 +26,15 @@ from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action, BillSubject
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
 from scripts.setup_challengers_table import Challenger2026
+from scripts.setup_fec_candidates_table import FECCandidate
 from sqlalchemy import or_, and_, text
 from scripts.simple_house_analysis import run_simple_house_analysis
 from scripts.ideological_labeling import calculate_voting_ideology_scores_fast, assign_ideological_labels
 from scripts.precalculate_ideology import get_member_ideology_fast
 import numpy as np
+from datetime import datetime
 from collections import defaultdict
+import re
 try:
     from sklearn.decomposition import TruncatedSVD
     from sklearn.cluster import KMeans
@@ -39,6 +42,75 @@ try:
     _SKLEARN_AVAILABLE = True
 except Exception:
     _SKLEARN_AVAILABLE = False
+
+def parse_fec_name(fec_name):
+    """
+    Parse FEC name format (LAST, FIRST TITLE or LAST, TITLE FIRST) 
+    and convert to TITLE FIRST LAST format.
+    
+    Examples:
+    - "SMITH, JOHN MR." -> "Mr. John Smith"
+    - "JONES, MARY MS." -> "Ms. Mary Jones" 
+    - "BROWN, DR. JANE" -> "Dr. Jane Brown"
+    - "WILSON, ROBERT" -> "Robert Wilson"
+    """
+    if not fec_name or ',' not in fec_name:
+        return fec_name
+    
+    # Split on comma
+    parts = fec_name.split(',', 1)
+    if len(parts) != 2:
+        return fec_name
+    
+    last_name = parts[0].strip()
+    first_part = parts[1].strip()
+    
+    # Common titles and their proper forms
+    title_mapping = {
+        'MR.': 'Mr.',
+        'MS.': 'Ms.',
+        'MRS.': 'Mrs.',
+        'DR.': 'Dr.',
+        'REV.': 'Rev.',
+        'PROF.': 'Prof.',
+        'SEN.': 'Sen.',
+        'REP.': 'Rep.',
+        'GOV.': 'Gov.',
+        'MAYOR': 'Mayor',
+        'JUDGE': 'Judge',
+        'CAPT.': 'Capt.',
+        'COL.': 'Col.',
+        'LT.': 'Lt.',
+        'SGT.': 'Sgt.',
+        'MAJ.': 'Maj.',
+        'GEN.': 'Gen.',
+        'ADM.': 'Adm.',
+        'HON.': 'Hon.'
+    }
+    
+    # Check if first part contains a title
+    title = None
+    first_name = first_part
+    
+    # Look for titles at the beginning or end of the first part
+    for title_key, title_value in title_mapping.items():
+        if first_part.upper().startswith(title_key):
+            title = title_value
+            first_name = first_part[len(title_key):].strip()
+            break
+        elif first_part.upper().endswith(title_key):
+            title = title_value
+            first_name = first_part[:-len(title_key)].strip()
+            break
+    
+    # Clean up first name (remove extra spaces, handle multiple names)
+    first_name = ' '.join(first_name.split())
+    
+    # Construct the final name
+    if title:
+        return f"{title} {first_name} {last_name}"
+    else:
+        return f"{first_name} {last_name}"
 
 def load_caucus_data():
     """Load caucus membership data from database."""
@@ -1694,6 +1766,37 @@ def get_challengers():
             
             challengers_data = []
             for challenger in challengers:
+                # Look up cash on hand from FEC data
+                cash_on_hand = None
+                fec_candidates = session.query(FECCandidate).filter(
+                    FECCandidate.party == 'DEM',
+                    FECCandidate.office == 'H',
+                    FECCandidate.election_year == 2026,
+                    FECCandidate.incumbent_challenge_status == 'C',
+                    FECCandidate.active == True,
+                    FECCandidate.state == challenger.challenger_state,
+                    FECCandidate.district == str(challenger.challenger_district)
+                ).all()
+                
+                # Try to match by converting FEC names to the same format as challenger names
+                for fec_candidate in fec_candidates:
+                    formatted_fec_name = parse_fec_name(fec_candidate.name)
+                    
+                    # Try exact match first
+                    if formatted_fec_name == challenger.challenger_name:
+                        cash_on_hand = fec_candidate.cash_on_hand
+                        break
+                    
+                    # Try flexible match (first and last name only, ignoring middle names)
+                    challenger_parts = challenger.challenger_name.split()
+                    fec_parts = formatted_fec_name.split()
+                    
+                    if (len(challenger_parts) >= 2 and len(fec_parts) >= 2 and
+                        challenger_parts[0].upper() == fec_parts[0].upper() and  # First name
+                        challenger_parts[-1].upper() == fec_parts[-1].upper()):  # Last name
+                        cash_on_hand = fec_candidate.cash_on_hand
+                        break
+                
                 challengers_data.append({
                     'id': challenger.id,
                     'challenger_name': challenger.challenger_name,
@@ -1704,6 +1807,7 @@ def get_challengers():
                     'actblue_donation_link': challenger.actblue_donation_link,
                     'mugshot_image_filename': challenger.mugshot_image_filename,
                     'biography': challenger.biography,
+                    'cash_on_hand': cash_on_hand,
                     'created_at': challenger.created_at.isoformat() if challenger.created_at else None,
                     'updated_at': challenger.updated_at.isoformat() if challenger.updated_at else None
                 })
@@ -1862,6 +1966,209 @@ def check_challengers_for_district(state, district):
             'error': str(e)
         }), 500
 
+@app.route('/api/challengers/populate-from-fec', methods=['POST'])
+def populate_challengers_from_fec():
+    """Populate challengers from FEC data - all Democratic challengers with >= $10K cash on hand running against Republican incumbents."""
+    try:
+        with get_db_session() as session:
+            # Get all Republican incumbents to filter districts
+            republican_incumbents = session.query(Member).filter(
+                Member.party == 'R',
+                Member.district.isnot(None),  # House members only
+                Member.end_date.is_(None)  # Current members only
+            ).all()
+            
+            # Create set of Republican incumbent districts
+            republican_districts = set()
+            for incumbent in republican_incumbents:
+                republican_districts.add(f"{incumbent.state}-{incumbent.district}")
+            
+            # Get all Democratic challengers with at least $10,000 cash on hand
+            fec_challengers = session.query(FECCandidate).filter(
+                FECCandidate.party == 'DEM',
+                FECCandidate.office == 'H',
+                FECCandidate.election_year == 2026,
+                FECCandidate.incumbent_challenge_status == 'C',  # Challengers only
+                FECCandidate.active == True,
+                FECCandidate.cash_on_hand >= 10000  # At least $10,000 cash on hand
+            ).order_by(
+                FECCandidate.cash_on_hand.desc()  # Order by cash on hand (descending)
+            ).all()
+            
+            # Process all qualifying challengers
+            added_count = 0
+            updated_count = 0
+            skipped_count = 0
+            
+            for candidate in fec_challengers:
+                # Skip candidates with missing or invalid district data
+                if not candidate.district or candidate.district == 'None' or candidate.district == '':
+                    skipped_count += 1
+                    continue
+                
+                # Only include districts with Republican incumbents
+                district_key = f"{candidate.state}-{candidate.district}"
+                if district_key not in republican_districts:
+                    skipped_count += 1
+                    continue
+                
+                state, district = district_key.split('-')
+                try:
+                    district = int(district) if district and district != 'None' else 0
+                except (ValueError, TypeError):
+                    district = 0
+                
+                # Parse and format the name
+                formatted_name = parse_fec_name(candidate.name)
+                
+                # Check if challenger already exists (by original FEC name or formatted name)
+                existing = session.query(Challenger2026).filter(
+                    Challenger2026.challenger_state == state,
+                    Challenger2026.challenger_district == district,
+                    or_(
+                        Challenger2026.challenger_name == candidate.name,
+                        Challenger2026.challenger_name == formatted_name
+                    )
+                ).first()
+                
+                if existing:
+                    # Update existing challenger with latest cash on hand info and formatted name
+                    existing.challenger_name = formatted_name
+                    existing.biography = f"Democratic challenger for {state}-{district}. Cash on hand: ${candidate.cash_on_hand:,.0f}" if candidate.cash_on_hand else f"Democratic challenger for {state}-{district}."
+                    existing.updated_at = datetime.utcnow()
+                    updated_count += 1
+                else:
+                    # Create new challenger from FEC data
+                    new_challenger = Challenger2026(
+                        challenger_name=formatted_name,
+                        challenger_party='D',
+                        challenger_state=state,
+                        challenger_district=district,
+                        campaign_homepage_url=None,  # FEC doesn't have website data
+                        actblue_donation_link=None,  # FEC doesn't have ActBlue data
+                        mugshot_image_filename=None,
+                        biography=f"Democratic challenger for {state}-{district}. Cash on hand: ${candidate.cash_on_hand:,.0f}" if candidate.cash_on_hand else f"Democratic challenger for {state}-{district}."
+                    )
+                    session.add(new_challenger)
+                    added_count += 1
+            
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully populated challengers from FEC data (>= $10K cash on hand)',
+                'stats': {
+                    'added': added_count,
+                    'updated': updated_count,
+                    'skipped': skipped_count,
+                    'total_processed': len(fec_challengers)
+                }
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/challengers/delete-empty-biographies', methods=['POST'])
+def delete_challengers_with_empty_biographies():
+    """Delete all challengers that have empty or null biographies."""
+    try:
+        with get_db_session() as session:
+            # Find challengers with empty or null biographies
+            challengers_to_delete = session.query(Challenger2026).filter(
+                or_(
+                    Challenger2026.biography.is_(None),
+                    Challenger2026.biography == '',
+                    Challenger2026.biography == ' '
+                )
+            ).all()
+            
+            if not challengers_to_delete:
+                return jsonify({
+                    'success': True,
+                    'message': 'No challengers with empty biographies found',
+                    'stats': {
+                        'deleted': 0
+                    }
+                })
+            
+            # Count before deletion
+            count_to_delete = len(challengers_to_delete)
+            
+            # Delete the challengers
+            for challenger in challengers_to_delete:
+                session.delete(challenger)
+            
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully deleted {count_to_delete} challengers with empty biographies',
+                'stats': {
+                    'deleted': count_to_delete
+                }
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/challengers/format-names', methods=['POST'])
+def format_challenger_names():
+    """Format all challenger names from FEC format to TITLE FIRST LAST format."""
+    try:
+        with get_db_session() as session:
+            # Get all challengers
+            all_challengers = session.query(Challenger2026).all()
+            
+            if not all_challengers:
+                return jsonify({
+                    'success': True,
+                    'message': 'No challengers found to format',
+                    'stats': {
+                        'formatted': 0,
+                        'unchanged': 0
+                    }
+                })
+            
+            formatted_count = 0
+            unchanged_count = 0
+            
+            for challenger in all_challengers:
+                # Parse and format the name
+                formatted_name = parse_fec_name(challenger.challenger_name)
+                
+                # Only update if the name actually changed
+                if formatted_name != challenger.challenger_name:
+                    challenger.challenger_name = formatted_name
+                    challenger.updated_at = datetime.utcnow()
+                    formatted_count += 1
+                else:
+                    unchanged_count += 1
+            
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully formatted {formatted_count} challenger names',
+                'stats': {
+                    'formatted': formatted_count,
+                    'unchanged': unchanged_count,
+                    'total': len(all_challengers)
+                }
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/verify-dev-password', methods=['POST'])
 def verify_dev_password():
     """Verify developer mode password."""
@@ -1918,6 +2225,20 @@ def get_incumbent(state, district):
                 is_hispanic_caucus = member.member_id_bioguide in caucus_data['congressional_hispanic_caucus']
                 is_new_democrat_coalition = member.member_id_bioguide in caucus_data['new_democrat_coalition']
                 
+                # Look up cash on hand from FEC data for incumbent
+                incumbent_cash_on_hand = None
+                incumbent_fec_candidate = session.query(FECCandidate).filter(
+                    FECCandidate.office == 'H',
+                    FECCandidate.election_year == 2026,
+                    FECCandidate.incumbent_challenge_status == 'I',  # Incumbent
+                    FECCandidate.active == True,
+                    FECCandidate.state == state,
+                    FECCandidate.district == str(district)
+                ).first()
+                
+                if incumbent_fec_candidate:
+                    incumbent_cash_on_hand = incumbent_fec_candidate.cash_on_hand
+                
                 return jsonify({
                     'success': True,
                     'incumbent': {
@@ -1926,6 +2247,7 @@ def get_incumbent(state, district):
                         'state': member.state,
                         'district': member.district,
                         'bioguide_id': member.member_id_bioguide,
+                        'cash_on_hand': incumbent_cash_on_hand,
                         'is_freedom_caucus': is_freedom_caucus,
                         'is_progressive_caucus': is_progressive_caucus,
                         'is_blue_dog_coalition': is_blue_dog_coalition,

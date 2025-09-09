@@ -92,9 +92,23 @@
                         <p class="text-muted mb-0">Track Democratic candidates challenging Republican incumbents in 2026</p>
                     </div>
                     <div id="add-challenger-section" style="display: none;">
-                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChallengerModal">
-                            <i class="fas fa-plus me-1"></i>Add Challenger
-                        </button>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChallengerModal">
+                                <i class="fas fa-plus me-1"></i>Add Challenger
+                            </button>
+                            <button class="btn btn-success" id="populateFromFecBtn">
+                                <i class="fas fa-database me-1"></i>Populate from FEC
+                            </button>
+                            <button class="btn btn-secondary" id="refreshChallengersBtn">
+                                <i class="fas fa-sync-alt me-1"></i>Refresh
+                            </button>
+                            <button class="btn btn-danger" id="deleteEmptyBiographiesBtn">
+                                <i class="fas fa-trash me-1"></i>Delete Empty Biographies
+                            </button>
+                            <button class="btn btn-warning" id="formatNamesBtn">
+                                <i class="fas fa-edit me-1"></i>Format Names
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -483,6 +497,28 @@
                 filterChallengers();
             });
             
+            // Populate from FEC button handler
+            document.getElementById('populateFromFecBtn').addEventListener('click', function() {
+                populateFromFec();
+            });
+            
+            // Find ActBlue links button handler
+            
+            // Refresh challengers button handler
+            document.getElementById('refreshChallengersBtn').addEventListener('click', function() {
+                refreshChallengers();
+            });
+            
+            // Delete empty biographies button handler
+            document.getElementById('deleteEmptyBiographiesBtn').addEventListener('click', function() {
+                deleteEmptyBiographies();
+            });
+            
+            // Format names button handler
+            document.getElementById('formatNamesBtn').addEventListener('click', function() {
+                formatNames();
+            });
+            
             // Biography character counter for add form
             const biographyTextarea = document.getElementById('biography');
             const biographyCount = document.getElementById('biography-count');
@@ -636,6 +672,177 @@
             .catch(error => {
                 console.error('Error:', error);
                 showAlert('Error loading challengers. Please try again.', 'danger');
+            });
+        }
+
+        function populateFromFec() {
+            // Show confirmation dialog
+        const confirmed = confirm(
+            'This will populate challengers from FEC data (all Democratic challengers with >= $10K cash on hand running against Republican incumbents).\n\n' +
+            'Only districts with Republican incumbents will be included.\n' +
+            'Only challengers with at least $10,000 cash on hand will be added.\n' +
+            'Existing challengers with the same name will be updated.\n' +
+            'New challengers will be added.\n\n' +
+            'Continue?'
+        );
+            
+            if (!confirmed) return;
+            
+            // Show loading state
+            const button = document.getElementById('populateFromFecBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Populating...';
+            
+            fetch('/api/challengers/populate-from-fec', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(
+                        `Successfully populated challengers from FEC data! ` +
+                        `Added: ${data.stats.added}, Updated: ${data.stats.updated}, ` +
+                        `Republican Districts: ${data.stats.total_districts}`, 
+                        'success'
+                    );
+                    
+                    // Reload challengers to show the new data
+                    loadChallengers();
+                } else {
+                    showAlert('Error populating from FEC: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error populating from FEC. Please try again.', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        }
+
+
+        function refreshChallengers() {
+            // Show loading state
+            const button = document.getElementById('refreshChallengersBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Refreshing...';
+            
+            // Reload challengers from the server
+            loadChallengers();
+            
+            // Show success message
+            showAlert('Challengers refreshed successfully!', 'success');
+            
+            // Restore button state after a short delay
+            setTimeout(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }, 1000);
+        }
+
+        function deleteEmptyBiographies() {
+            // Show confirmation dialog with warning
+            const confirmed = confirm(
+                '⚠️ WARNING: This will permanently delete ALL challengers with empty biographies!\n\n' +
+                'This action cannot be undone.\n\n' +
+                'Are you sure you want to continue?'
+            );
+            
+            if (!confirmed) return;
+            
+            // Show loading state
+            const button = document.getElementById('deleteEmptyBiographiesBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+            
+            fetch('/api/challengers/delete-empty-biographies', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(
+                        `Successfully deleted ${data.stats.deleted} challengers with empty biographies!`, 
+                        'success'
+                    );
+                    
+                    // Reload challengers to show the updated list
+                    loadChallengers();
+                } else {
+                    showAlert('Error deleting challengers: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error deleting challengers. Please try again.', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+        }
+
+        function formatNames() {
+            // Show confirmation dialog
+            const confirmed = confirm(
+                'This will format all challenger names from "LAST, FIRST" to "TITLE FIRST LAST" format.\n\n' +
+                'Examples:\n' +
+                '• "SMITH, JOHN MR." → "Mr. John Smith"\n' +
+                '• "JONES, MARY MS." → "Ms. Mary Jones"\n' +
+                '• "BROWN, ROBERT" → "Robert Brown"\n\n' +
+                'Continue?'
+            );
+            
+            if (!confirmed) return;
+            
+            // Show loading state
+            const button = document.getElementById('formatNamesBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Formatting...';
+            
+            fetch('/api/challengers/format-names', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(
+                        `Successfully formatted ${data.stats.formatted} challenger names! ` +
+                        `(${data.stats.unchanged} were already in correct format)`, 
+                        'success'
+                    );
+                    
+                    // Reload challengers to show the formatted names
+                    loadChallengers();
+                } else {
+                    showAlert('Error formatting names: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error formatting names. Please try again.', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                button.disabled = false;
+                button.innerHTML = originalText;
             });
         }
 
@@ -809,6 +1016,12 @@
                                                 ${challenger.challenger_state}-${challenger.challenger_district}
                                                 <span class="badge bg-primary ms-2">${challenger.challenger_party}</span>
                                             </p>
+                                            ${challenger.cash_on_hand ? `
+                                                <p class="card-text text-success mb-0 small">
+                                                    <i class="fas fa-dollar-sign me-1"></i>
+                                                    Cash on hand: $${Math.round(challenger.cash_on_hand).toLocaleString()}
+                                                </p>
+                                            ` : ''}
                                         </div>
                                     </div>
                                     <!-- Running to unseat section -->
@@ -922,6 +1135,12 @@
                                 </div>
                                 <div class="small text-muted">
                                     <span class="${partyColor}">${incumbent.party}</span> • ${incumbent.state}-${incumbent.district}
+                                    ${incumbent.cash_on_hand ? `
+                                        <br><span class="text-success">
+                                            <i class="fas fa-dollar-sign me-1"></i>
+                                            Cash on hand: $${Math.round(incumbent.cash_on_hand).toLocaleString()}
+                                        </span>
+                                    ` : ''}
                                 </div>
                             </div>
                         `;
