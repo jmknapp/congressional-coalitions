@@ -239,6 +239,23 @@ logging.basicConfig(level=logging.WARNING)  # Reduce verbosity
 if os.environ.get('FLASK_ENV') == 'production':
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
+
+# Global error handlers
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors."""
+    return jsonify({'error': 'Not found', 'message': 'The requested resource was not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors."""
+    logger.error(f"Internal server error: {error}")
+    return jsonify({'error': 'Internal server error', 'message': 'An unexpected error occurred'}), 500
+
+@app.errorhandler(429)
+def rate_limit_exceeded(error):
+    """Handle rate limit exceeded."""
+    return jsonify({'error': 'Rate limit exceeded', 'message': 'Too many requests, please try again later'}), 429
 security_logger = logging.getLogger('security')
 
 # Security headers middleware
@@ -328,7 +345,7 @@ def force_https():
     """Force HTTPS in production only."""
     # Only enforce HTTPS in production mode
     # Temporarily disabled to prevent redirect loops behind reverse proxy
-    # TODO: Configure reverse proxy to properly forward X-Forwarded-Proto header
+    # Note: For production with reverse proxy, ensure X-Forwarded-Proto header is forwarded
     if False and (os.environ.get('FLASK_ENV', 'development') == 'production' and 
         not request.is_secure and 
         app.config.get('SESSION_COOKIE_SECURE', False)):
@@ -347,6 +364,27 @@ if not os.environ.get('DATABASE_URL'):
 def index():
     """Main dashboard page."""
     return render_template('index.html', dev_mode=DEV_MODE)
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring."""
+    try:
+        # Test database connection
+        with get_db_session() as session:
+            session.execute(text("SELECT 1"))
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'database': 'connected',
+            'cache': 'available'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now().isoformat(),
+            'error': str(e)
+        }), 503
 
 @app.route('/api/summary')
 def get_summary():

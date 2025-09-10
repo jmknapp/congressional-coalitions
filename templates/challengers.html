@@ -752,8 +752,7 @@
             }
             
             // Debug logging
-            console.log('Edit form data:', data);
-            console.log('Challenger ID:', challengerId);
+            // Debug: Edit form data and challenger ID
             
             fetch(`/api/challengers/${challengerId}`, {
                 method: 'PUT',
@@ -763,11 +762,11 @@
                 body: JSON.stringify(data)
             })
             .then(response => {
-                console.log('Response status:', response.status);
+                // Debug: Response status
                 return response.json();
             })
             .then(result => {
-                console.log('Response result:', result);
+                // Debug: Response result
                 if (result.success) {
                     // Close modal and reset form
                     const modal = bootstrap.Modal.getInstance(document.getElementById('editChallengerModal'));
@@ -1245,10 +1244,10 @@
 
         function loadIncumbentInfo(challengers) {
             challengers.forEach(challenger => {
-                console.log(`Loading incumbent for ${challenger.challenger_state}-${challenger.challenger_district}`);
+                // Debug: Loading incumbent
                 fetch(`/api/incumbent/${challenger.challenger_state}/${challenger.challenger_district}`)
                 .then(response => {
-                    console.log(`Response for ${challenger.challenger_state}-${challenger.challenger_district}:`, response.status);
+                    // Debug: Response status
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
@@ -1262,14 +1261,14 @@
                     return response.json();
                 })
                 .then(data => {
-                    console.log(`Incumbent data for ${challenger.challenger_state}-${challenger.challenger_district}:`, data);
+                    // Debug: Incumbent data
                     const incumbentDiv = document.getElementById(`incumbent-${challenger.id}`);
                     if (incumbentDiv && data.success) {
                         const incumbent = data.incumbent;
                         const partyColor = incumbent.party === 'R' ? 'text-danger' : 
                                           incumbent.party === 'D' ? 'text-primary' : 'text-secondary';
                         
-                        console.log(`Setting incumbent photo for ${incumbent.name} (${incumbent.bioguide_id})`);
+                        // Debug: Setting incumbent photo
                         
                         incumbentDiv.innerHTML = `
                             <div class="position-relative me-3" style="width: 50px; height: 50px;">
@@ -1281,8 +1280,8 @@
                                      class="rounded position-absolute" 
                                      style="width: 50px; height: 50px; object-fit: cover; top: 0; left: 0; z-index: 2;" 
                                      alt="${escapeHtml(incumbent.name)}"
-                                     onerror="console.log('Congress.gov photo failed for ${incumbent.bioguide_id}, trying alternative...'); this.src='https://bioguide.congress.gov/bioguide/photo/${incumbent.bioguide_id.charAt(0)}/${incumbent.bioguide_id}.jpg'; this.onerror=function(){console.log('All photo sources failed for ${incumbent.bioguide_id}'); this.style.display='none';};"
-                                     onload="console.log('Photo loaded successfully for ${incumbent.bioguide_id}');">
+                                     onerror="this.src='https://bioguide.congress.gov/bioguide/photo/${incumbent.bioguide_id.charAt(0)}/${incumbent.bioguide_id}.jpg'; this.onerror=function(){this.style.display='none';};"
+                                     onload="">
                             </div>
                             <div class="flex-grow-1">
                                 <div class="fw-semibold text-dark d-flex align-items-center">
