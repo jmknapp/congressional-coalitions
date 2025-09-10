@@ -11,7 +11,7 @@ Restart=always
 RestartSec=10
 TimeoutStartSec=300
 ExecStartPre=/usr/bin/docker rm -f congressional-app || true
-ExecStart=/usr/bin/docker run --network host -v /var/run/mysqld:/var/run/mysqld -v /run/mysqld:/run/mysqld -e DATABASE_URL=mysql://congressional:congressional123@localhost:3306/congressional_coalitions -e FLASK_ENV=production -e DEV_MODE=false -e ALLOWED_ORIGINS=https://hillbeacon.com,https://www.hillbeacon.com --name congressional-app congressional-coalitions
+ExecStart=/usr/bin/docker run --network host -v /var/run/mysqld:/var/run/mysqld -v /run/mysqld:/run/mysqld -e DATABASE_URL=mysql://congressional:P_314159_i@localhost:3306/congressional_coalitions -e FLASK_ENV=production -e DEV_MODE=false -e ALLOWED_ORIGINS=https://hillbeacon.com,https://www.hillbeacon.com --name congressional-app congressional-coalitions
 ExecStop=/usr/bin/docker stop congressional-app || true
 ExecStopPost=/usr/bin/docker rm congressional-app || true
 
