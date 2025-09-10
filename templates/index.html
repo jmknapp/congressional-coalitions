@@ -470,10 +470,14 @@
         let developerMode = false;
         
         // Check if developer mode session is still valid
-        if (isDeveloperModeSessionValid()) {
-            // Session is valid, enable developer mode without password prompt
-            enableDeveloperMode();
-        }
+        isDeveloperModeSessionValid().then(isValid => {
+            if (isValid) {
+                // Session is valid, enable developer mode without password prompt
+                enableDeveloperMode();
+            }
+        }).catch(error => {
+            console.error('Error checking dev session:', error);
+        });
         
         // Listen for Shift+Ctrl+D key combination
         document.addEventListener('keydown', function(event) {

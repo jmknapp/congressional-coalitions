@@ -15,7 +15,10 @@ async function isDeveloperModeSessionValid() {
         if (response.ok) {
             const result = await response.json();
             console.log('Dev session status response:', result); // Debug log
-            return result.success && result.dev_mode === true;
+            console.log('result.success:', result.success, 'result.dev_mode:', result.dev_mode); // More detailed logging
+            const shouldEnable = result.success && result.dev_mode === true;
+            console.log('Should enable dev mode:', shouldEnable); // Final decision
+            return shouldEnable;
         }
         
         console.log('Dev session status request failed:', response.status); // Debug log

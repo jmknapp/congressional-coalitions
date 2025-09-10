@@ -263,7 +263,7 @@ def add_security_headers(response):
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         "img-src 'self' data: https:; "
         "font-src 'self' https://cdnjs.cloudflare.com; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         "frame-ancestors 'none';"
     )
     response.headers['Content-Security-Policy'] = csp
