@@ -215,7 +215,8 @@ CORS(app, origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','))
 # Configure rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["10000 per day", "2000 per hour"]  # Increased limits temporarily
+    default_limits=["10000 per day", "2000 per hour"],  # Increased limits temporarily
+    storage_uri="memory://"  # Use in-memory storage for development
 )
 limiter.init_app(app)
 
@@ -223,12 +224,13 @@ limiter.init_app(app)
 cache_config = {
     'CACHE_TYPE': 'filesystem',  # File-based cache for persistence across restarts
     'CACHE_DIR': '/tmp/congressional_cache',  # Cache directory
-    'CACHE_DEFAULT_TIMEOUT': 300,  # 5 minutes default timeout
-    'CACHE_OPTIONS': {
-        'CACHE_DEFAULT_TIMEOUT': 300,
-        'CACHE_IGNORE_ERRORS': True
-    }
+    'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutes default timeout
 }
+
+# Ensure cache directory exists
+import os
+os.makedirs('/tmp/congressional_cache', exist_ok=True)
+
 app.config.update(cache_config)
 cache = Cache(app)
 
