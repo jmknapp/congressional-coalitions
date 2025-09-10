@@ -123,7 +123,6 @@ def parse_fec_name(fec_name):
 
 def load_caucus_data():
     """Load caucus membership data from database."""
-    print("DEBUG: load_caucus_data() called")
     caucus_data = {}
     
     try:
@@ -184,13 +183,6 @@ def load_caucus_data():
             ).all()
             caucus_data['new_democrat_coalition'] = {m.member_id_bioguide for m in ndc_members}
             
-            print(f"DEBUG: Loaded CBC data with {len(caucus_data['congressional_black_caucus'])} members")
-            print(f"DEBUG: CBC members: {sorted(list(caucus_data['congressional_black_caucus']))}")
-            print(f"DEBUG: Loaded MAGA data with {len(caucus_data['maga_republicans'])} members")
-            print(f"DEBUG: MAGA members: {sorted(list(caucus_data['maga_republicans']))}")
-            print(f"DEBUG: Loaded CHC data with {len(caucus_data['congressional_hispanic_caucus'])} members")
-            print(f"DEBUG: Loaded NDC data with {len(caucus_data['new_democrat_coalition'])} members")
-            print(f"DEBUG: load_caucus_data() returning CBC set: {caucus_data['congressional_black_caucus']}")
             
     except Exception as e:
         print(f"Error loading caucus data from database: {e}")
@@ -231,13 +223,22 @@ limiter.init_app(app)
 cache_config = {
     'CACHE_TYPE': 'filesystem',  # File-based cache for persistence across restarts
     'CACHE_DIR': '/tmp/congressional_cache',  # Cache directory
-    'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutes default timeout
+    'CACHE_DEFAULT_TIMEOUT': 300,  # 5 minutes default timeout
+    'CACHE_OPTIONS': {
+        'CACHE_DEFAULT_TIMEOUT': 300,
+        'CACHE_IGNORE_ERRORS': True
+    }
 }
 app.config.update(cache_config)
 cache = Cache(app)
 
 # Configure logging for security events
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)  # Reduce verbosity
+
+# Suppress Werkzeug request logs in production
+if os.environ.get('FLASK_ENV') == 'production':
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
 security_logger = logging.getLogger('security')
 
 # Security headers middleware
@@ -713,9 +714,7 @@ def get_members():
                 
                 # Debug logging for Kaptur
                 if member.first == 'Marcy' and member.last == 'Kaptur':
-                    print(f"DEBUG: Kaptur {member.member_id_bioguide} CBC check: {is_congressional_black_caucus}")
-                    print(f"DEBUG: CBC data contains: {member.member_id_bioguide in caucus_data['congressional_black_caucus']}")
-                    print(f"DEBUG: CBC set: {caucus_data['congressional_black_caucus']}")
+                    pass  # Debug statements removed
                 
                 member_data.append({
                     'id': member.member_id_bioguide,
@@ -1127,7 +1126,6 @@ def get_simplified_cosponsorship_network():
         max_edges_per_node = int(request.args.get('max_edges_per_node', 20))
         party_filter = request.args.get('party', None)
         
-        print(f"DEBUG: Received params - min_relationships={min_relationships}, min_bills_sponsored={min_bills_sponsored}, max_edges_per_node={max_edges_per_node}, party_filter={party_filter}")
         
         with get_db_session() as session:
             # Get House members with filtering
@@ -1203,7 +1201,6 @@ def get_simplified_cosponsorship_network():
             links = []
             node_edge_counts = {}
             
-            print(f"DEBUG: Total edges before filtering: {len(edges)}")
             
             # Sort edges by weight (number of bills) to prioritize stronger relationships
             sorted_edges = sorted(edges.items(), key=lambda x: len(x[1]['bills']), reverse=True)
@@ -1238,7 +1235,6 @@ def get_simplified_cosponsorship_network():
                 node_edge_counts[source_node] = node_edge_counts.get(source_node, 0) + 1
                 node_edge_counts[target_node] = node_edge_counts.get(target_node, 0) + 1
             
-            print(f"DEBUG: Final results - nodes: {len(nodes)}, links: {len(links)}")
             
             return jsonify({
                 'nodes': nodes,
@@ -1345,7 +1341,6 @@ def get_member_network(bioguide_id):
                     color = '#ff7f0e'  # Orange
                 
                 # Debug: print party info
-                print(f"DEBUG: Member {member.first} {member.last} - Party: '{member.party}' - Color: {color}")
                 
                 nodes.append({
                     'id': member.member_id_bioguide,

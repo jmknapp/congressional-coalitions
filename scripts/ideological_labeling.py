@@ -60,7 +60,7 @@ def calculate_partyliner_score(member_id: str, party: str, vote_matrix: dict, ro
     total_weight = 0.0
     
     if debug:
-        print(f"\n=== DEBUG: Partyliner calculation for {member_id} ({party}) ===")
+        # Debug: Partyliner calculation for {member_id} ({party})
         total_votes_processed = 0
         votes_with_party = 0
         votes_against_party = 0
