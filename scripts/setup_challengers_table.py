@@ -25,6 +25,7 @@ class Challenger2026(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     challenger_name = Column(String(200), nullable=False)
+    fecname = Column(String(200), nullable=True)  # Exact FEC name format for matching
     challenger_party = Column(String(10), nullable=False, default='D')
     challenger_state = Column(String(2), nullable=False)
     challenger_district = Column(Integer, nullable=False)

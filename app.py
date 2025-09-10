@@ -1950,6 +1950,7 @@ def get_challengers():
                 challengers_data.append({
                     'id': challenger.id,
                     'challenger_name': challenger.challenger_name,
+                    'fecname': challenger.fecname,  # Include FEC name in response
                     'challenger_party': challenger.challenger_party,
                     'challenger_state': challenger.challenger_state,
                     'challenger_district': challenger.challenger_district,
@@ -1992,6 +1993,7 @@ def add_challenger():
             # Create new challenger
             challenger = Challenger2026(
                 challenger_name=data['challenger_name'],
+                fecname=data.get('fecname'),  # Optional FEC name for matching
                 challenger_party=data.get('challenger_party', 'D'),
                 challenger_state=data['challenger_state'],
                 challenger_district=data['challenger_district'],
@@ -2043,6 +2045,7 @@ def update_challenger(challenger_id):
             
             # Update challenger fields
             challenger.challenger_name = data['challenger_name']
+            challenger.fecname = data.get('fecname')  # Update FEC name if provided
             challenger.challenger_party = data.get('challenger_party', 'D')
             challenger.challenger_state = data['challenger_state']
             challenger.challenger_district = data['challenger_district']
@@ -2086,6 +2089,101 @@ def delete_challenger(challenger_id):
                 'success': True,
                 'message': 'Challenger deleted successfully'
             })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/fec-exclusions', methods=['GET'])
+def get_fec_exclusions():
+    """Get the list of excluded FEC candidates."""
+    try:
+        from src.utils.fec_exclusions import FECExclusionManager
+        
+        manager = FECExclusionManager()
+        exclusions = manager.get_exclusions_list()
+        
+        return jsonify({
+            'success': True,
+            'exclusions': exclusions
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/fec-exclusions', methods=['POST'])
+def add_fec_exclusion():
+    """Add a candidate to the FEC exclusion list."""
+    try:
+        from src.utils.fec_exclusions import FECExclusionManager
+        
+        data = request.get_json()
+        state = data.get('state')
+        district = data.get('district')
+        fec_name = data.get('fec_name')
+        reason = data.get('reason', 'Manually excluded')
+        
+        if not all([state, district, fec_name]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: state, district, fec_name'
+            }), 400
+        
+        manager = FECExclusionManager()
+        success = manager.add_exclusion(state, district, fec_name, reason)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Successfully excluded {fec_name} ({state}-{district})'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to add exclusion'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/fec-exclusions', methods=['DELETE'])
+def remove_fec_exclusion():
+    """Remove a candidate from the FEC exclusion list."""
+    try:
+        from src.utils.fec_exclusions import FECExclusionManager
+        
+        data = request.get_json()
+        state = data.get('state')
+        district = data.get('district')
+        fec_name = data.get('fec_name')
+        
+        if not all([state, district, fec_name]):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required fields: state, district, fec_name'
+            }), 400
+        
+        manager = FECExclusionManager()
+        success = manager.remove_exclusion(state, district, fec_name)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Successfully removed exclusion for {fec_name} ({state}-{district})'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to remove exclusion or exclusion not found'
+            }), 500
             
     except Exception as e:
         return jsonify({
@@ -2171,33 +2269,43 @@ def populate_challengers_from_fec():
                 # Parse and format the name
                 formatted_name = parse_fec_name(candidate.name)
                 
-                # Check if challenger already exists (by original FEC name or formatted name)
+                # Check if candidate is in the exclusion list
+                from src.utils.fec_exclusions import is_candidate_excluded
+                if is_candidate_excluded(state, str(district), candidate.name):
+                    skipped_count += 1
+                    continue
+                
+                # Check if challenger already exists (by fecname as primary key, with fallback to name matching)
                 existing = session.query(Challenger2026).filter(
                     Challenger2026.challenger_state == state,
                     Challenger2026.challenger_district == district,
                     or_(
-                        Challenger2026.challenger_name == candidate.name,
-                        Challenger2026.challenger_name == formatted_name
+                        Challenger2026.fecname == candidate.name,  # Primary: exact FEC name match
+                        Challenger2026.challenger_name == candidate.name,  # Fallback: original FEC name
+                        Challenger2026.challenger_name == formatted_name  # Fallback: formatted name
                     )
                 ).first()
                 
                 if existing:
                     # Update existing challenger with latest cash on hand info and formatted name
                     existing.challenger_name = formatted_name
-                    existing.biography = f"Democratic challenger for {state}-{district}. Cash on hand: ${candidate.cash_on_hand:,.0f}" if candidate.cash_on_hand else f"Democratic challenger for {state}-{district}."
+                    existing.fecname = candidate.name  # Store exact FEC name for future matching
+                    # DON'T overwrite existing biography - preserve user-entered content
                     existing.updated_at = datetime.utcnow()
                     updated_count += 1
                 else:
                     # Create new challenger from FEC data
                     new_challenger = Challenger2026(
                         challenger_name=formatted_name,
+                        fecname=candidate.name,  # Store exact FEC name for future matching
                         challenger_party='D',
                         challenger_state=state,
                         challenger_district=district,
                         campaign_homepage_url=None,  # FEC doesn't have website data
                         actblue_donation_link=None,  # FEC doesn't have ActBlue data
                         mugshot_image_filename=None,
-                        biography=f"Democratic challenger for {state}-{district}. Cash on hand: ${candidate.cash_on_hand:,.0f}" if candidate.cash_on_hand else f"Democratic challenger for {state}-{district}."
+                        # Only set basic biography for new challengers - existing ones preserve their custom bios
+                        biography=f"Democratic challenger running for U.S. House in {state}-{district}. Cash on hand: ${candidate.cash_on_hand:,.0f}" if candidate.cash_on_hand else f"Democratic challenger running for U.S. House in {state}-{district}."
                     )
                     session.add(new_challenger)
                     added_count += 1
@@ -2296,6 +2404,9 @@ def format_challenger_names():
                 # Only update if the name actually changed
                 if formatted_name != challenger.challenger_name:
                     challenger.challenger_name = formatted_name
+                    # If fecname is not set, try to set it from the current name
+                    if not challenger.fecname:
+                        challenger.fecname = challenger.challenger_name  # Fallback to current name
                     challenger.updated_at = datetime.utcnow()
                     formatted_count += 1
                 else:

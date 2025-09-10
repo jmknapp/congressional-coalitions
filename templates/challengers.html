@@ -153,6 +153,9 @@
                             <button class="btn btn-warning" id="formatNamesBtn">
                                 <i class="fas fa-edit me-1"></i>Format Names
                             </button>
+                            <button class="btn btn-secondary" id="manageExclusionsBtn">
+                                <i class="fas fa-ban me-1"></i>Manage Exclusions
+                            </button>
                         </div>
                     </div>
                     <!-- Bulk donation feature temporarily hidden
@@ -224,7 +227,14 @@
                                 <div class="mb-3">
                                     <label for="challengerName" class="form-label">Challenger Name *</label>
                                     <input type="text" class="form-control" id="challengerName" name="challenger_name" required>
-                                    <div class="form-text">Full name of the Democratic challenger</div>
+                                    <div class="form-text">Full name of the Democratic challenger (can use nicknames, etc.)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="fecName" class="form-label">FEC Name</label>
+                                    <input type="text" class="form-control" id="fecName" name="fecname" placeholder="LAST, FIRST TITLE">
+                                    <div class="form-text">Exact FEC name format for matching (e.g., "SMITH, JOHN MR.")</div>
                                 </div>
                             </div>
                             <div class="col-md-3">
@@ -373,7 +383,14 @@
                                 <div class="mb-3">
                                     <label for="editChallengerName" class="form-label">Challenger Name *</label>
                                     <input type="text" class="form-control" id="editChallengerName" name="challenger_name" required>
-                                    <div class="form-text">Full name of the Democratic challenger</div>
+                                    <div class="form-text">Full name of the Democratic challenger (can use nicknames, etc.)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="editFecName" class="form-label">FEC Name</label>
+                                    <input type="text" class="form-control" id="editFecName" name="fecname" placeholder="LAST, FIRST TITLE">
+                                    <div class="form-text">Exact FEC name format for matching (e.g., "SMITH, JOHN MR.")</div>
                                 </div>
                             </div>
                             <div class="col-md-3">
@@ -581,6 +598,144 @@
     </div>
     -->
 
+    <!-- FEC Exclusions Management Modal -->
+    <div class="modal fade" id="exclusionsModal" tabindex="-1" aria-labelledby="exclusionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exclusionsModalLabel">
+                        <i class="fas fa-ban me-2"></i>FEC Candidate Exclusions
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Purpose:</strong> This list contains candidates who have dropped out but may still appear in FEC CSV files. 
+                        These candidates will be automatically skipped when populating from FEC data.
+                    </div>
+                    
+                    <!-- Add New Exclusion Form -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-plus me-2"></i>Add New Exclusion
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <form id="addExclusionForm">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="exclusionState" class="form-label">State *</label>
+                                            <select class="form-select" id="exclusionState" name="state" required>
+                                                <option value="">Select State</option>
+                                                <option value="AL">Alabama</option>
+                                                <option value="AK">Alaska</option>
+                                                <option value="AZ">Arizona</option>
+                                                <option value="AR">Arkansas</option>
+                                                <option value="CA">California</option>
+                                                <option value="CO">Colorado</option>
+                                                <option value="CT">Connecticut</option>
+                                                <option value="DE">Delaware</option>
+                                                <option value="FL">Florida</option>
+                                                <option value="GA">Georgia</option>
+                                                <option value="HI">Hawaii</option>
+                                                <option value="ID">Idaho</option>
+                                                <option value="IL">Illinois</option>
+                                                <option value="IN">Indiana</option>
+                                                <option value="IA">Iowa</option>
+                                                <option value="KS">Kansas</option>
+                                                <option value="KY">Kentucky</option>
+                                                <option value="LA">Louisiana</option>
+                                                <option value="ME">Maine</option>
+                                                <option value="MD">Maryland</option>
+                                                <option value="MA">Massachusetts</option>
+                                                <option value="MI">Michigan</option>
+                                                <option value="MN">Minnesota</option>
+                                                <option value="MS">Mississippi</option>
+                                                <option value="MO">Missouri</option>
+                                                <option value="MT">Montana</option>
+                                                <option value="NE">Nebraska</option>
+                                                <option value="NV">Nevada</option>
+                                                <option value="NH">New Hampshire</option>
+                                                <option value="NJ">New Jersey</option>
+                                                <option value="NM">New Mexico</option>
+                                                <option value="NY">New York</option>
+                                                <option value="NC">North Carolina</option>
+                                                <option value="ND">North Dakota</option>
+                                                <option value="OH">Ohio</option>
+                                                <option value="OK">Oklahoma</option>
+                                                <option value="OR">Oregon</option>
+                                                <option value="PA">Pennsylvania</option>
+                                                <option value="RI">Rhode Island</option>
+                                                <option value="SC">South Carolina</option>
+                                                <option value="SD">South Dakota</option>
+                                                <option value="TN">Tennessee</option>
+                                                <option value="TX">Texas</option>
+                                                <option value="UT">Utah</option>
+                                                <option value="VT">Vermont</option>
+                                                <option value="VA">Virginia</option>
+                                                <option value="WA">Washington</option>
+                                                <option value="WV">West Virginia</option>
+                                                <option value="WI">Wisconsin</option>
+                                                <option value="WY">Wyoming</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <div class="mb-3">
+                                            <label for="exclusionDistrict" class="form-label">District *</label>
+                                            <input type="number" class="form-control" id="exclusionDistrict" name="district" min="1" max="53" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="exclusionFecName" class="form-label">FEC Name *</label>
+                                            <input type="text" class="form-control" id="exclusionFecName" name="fec_name" placeholder="SMITH, JOHN MR." required>
+                                            <div class="form-text">Exact FEC name format (e.g., "SMITH, JOHN MR.")</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="mb-3">
+                                            <label for="exclusionReason" class="form-label">Reason</label>
+                                            <input type="text" class="form-control" id="exclusionReason" name="reason" placeholder="Dropped out of race">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-end">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-plus me-1"></i>Add Exclusion
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <!-- Current Exclusions List -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-list me-2"></i>Current Exclusions
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="exclusionsContainer">
+                                <div class="text-center py-5">
+                                    <i class="fas fa-spinner fa-spin fa-2x text-muted mb-3"></i>
+                                    <p class="text-muted">Loading exclusions...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/dev-config.js') }}"></script>
     <script>
@@ -650,6 +805,46 @@
             // Format names button handler
             document.getElementById('formatNamesBtn').addEventListener('click', function() {
                 formatNames();
+            });
+            
+            // Manage exclusions button handler
+            document.getElementById('manageExclusionsBtn').addEventListener('click', function() {
+                showExclusionsModal();
+            });
+            
+            // Add exclusion form submission
+            document.getElementById('addExclusionForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(this);
+                const data = Object.fromEntries(formData);
+                
+                fetch('/api/fec-exclusions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        // Reset form
+                        this.reset();
+                        
+                        // Reload exclusions
+                        loadExclusions();
+                        
+                        // Show success message
+                        showAlert('Exclusion added successfully!', 'success');
+                    } else {
+                        showAlert('Error adding exclusion: ' + result.error, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Error adding exclusion. Please try again.', 'danger');
+                });
             });
             
             // Bulk donation modal handlers - temporarily disabled
@@ -1206,6 +1401,13 @@
                                         ` : ''}
                                     </div>
                                     <div class="mt-3 pt-3 border-top dev-mode-buttons" style="display: none;">
+                                        ${challenger.fecname ? `
+                                            <div class="mb-2">
+                                                <small class="text-muted">
+                                                    <i class="fas fa-database me-1"></i>FEC Name: ${escapeHtml(challenger.fecname)}
+                                                </small>
+                                            </div>
+                                        ` : ''}
                                         <div class="d-flex gap-2">
                                             <button class="btn btn-outline-primary btn-sm flex-grow-1" 
                                                     onclick="editChallenger(${challenger.id})">
@@ -1399,6 +1601,7 @@
                         // Populate the edit form
                         document.getElementById('editChallengerId').value = challenger.id;
                         document.getElementById('editChallengerName').value = challenger.challenger_name || '';
+                        document.getElementById('editFecName').value = challenger.fecname || '';
                         document.getElementById('editChallengerParty').value = challenger.challenger_party || 'D';
                         document.getElementById('editChallengerState').value = challenger.challenger_state || '';
                         document.getElementById('editChallengerDistrict').value = challenger.challenger_district || '';
@@ -1459,6 +1662,124 @@
                 .catch(error => {
                     console.error('Error:', error);
                     showAlert('Error deleting challenger. Please try again.', 'danger');
+                });
+            }
+        }
+        
+        function showExclusionsModal() {
+            // Show the modal
+            const modal = new bootstrap.Modal(document.getElementById('exclusionsModal'));
+            modal.show();
+            
+            // Load current exclusions
+            loadExclusions();
+        }
+        
+        function loadExclusions() {
+            fetch('/api/fec-exclusions')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayExclusions(data.exclusions);
+                } else {
+                    document.getElementById('exclusionsContainer').innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Error loading exclusions: ${data.error}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('exclusionsContainer').innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        Error loading exclusions. Please try again.
+                    </div>
+                `;
+            });
+        }
+        
+        function displayExclusions(exclusions) {
+            const container = document.getElementById('exclusionsContainer');
+            
+            if (exclusions.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-5">
+                        <i class="fas fa-check-circle fa-3x text-muted mb-3"></i>
+                        <h4 class="text-muted">No exclusions</h4>
+                        <p class="text-muted">All FEC candidates will be processed normally.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const html = `
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>State</th>
+                                <th>District</th>
+                                <th>FEC Name</th>
+                                <th>Reason</th>
+                                <th>Excluded Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${exclusions.map(exclusion => `
+                                <tr>
+                                    <td><span class="badge bg-primary">${exclusion.state}</span></td>
+                                    <td>${exclusion.district}</td>
+                                    <td><code>${escapeHtml(exclusion.fec_name)}</code></td>
+                                    <td>${escapeHtml(exclusion.reason || 'No reason provided')}</td>
+                                    <td>${new Date(exclusion.excluded_date).toLocaleDateString()}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger" 
+                                                onclick="removeExclusion('${exclusion.state}', '${exclusion.district}', '${escapeHtml(exclusion.fec_name)}')">
+                                            <i class="fas fa-trash"></i> Remove
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        function removeExclusion(state, district, fecName) {
+            if (confirm(`Are you sure you want to remove the exclusion for ${fecName} (${state}-${district})? They will be processed again when populating from FEC data.`)) {
+                fetch('/api/fec-exclusions', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        state: state,
+                        district: district,
+                        fec_name: fecName
+                    })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        // Reload exclusions
+                        loadExclusions();
+                        
+                        // Show success message
+                        showAlert('Exclusion removed successfully!', 'success');
+                    } else {
+                        showAlert('Error removing exclusion: ' + result.error, 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Error removing exclusion. Please try again.', 'danger');
                 });
             }
         }

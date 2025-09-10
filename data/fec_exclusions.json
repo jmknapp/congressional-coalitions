@@ -1,0 +1,48 @@
+{
+  "excluded_candidates": [
+    {
+      "state": "CA",
+      "district": "12",
+      "fec_name": "SMITH, JOHN MR.",
+      "reason": "Dropped out of race",
+      "excluded_date": "2024-01-15"
+    },
+    {
+      "state": "FL",
+      "district": "6",
+      "fec_name": "SELMONT, GEORGE AUSTIN",
+      "reason": "",
+      "excluded_date": "2025-09-10"
+    },
+    {
+      "state": "IA",
+      "district": "2",
+      "fec_name": "TECHAU, KEVIN W",
+      "reason": "",
+      "excluded_date": "2025-09-10"
+    },
+    {
+      "state": "NC",
+      "district": "11",
+      "fec_name": "DAVIS, MORRIS D. COL.",
+      "reason": "",
+      "excluded_date": "2025-09-10"
+    },
+    {
+      "state": "FL",
+      "district": "21",
+      "fec_name": "PANDICH, ELIZABETH",
+      "reason": "",
+      "excluded_date": "2025-09-10"
+    },
+    {
+      "state": "FL",
+      "district": "27",
+      "fec_name": "DAVEY, MICHAEL",
+      "reason": "",
+      "excluded_date": "2025-09-10"
+    }
+  ],
+  "last_updated": "2025-09-10T09:20:34.024530Z",
+  "description": "List of FEC candidates to exclude from automatic population. Add entries here when candidates drop out but are still in FEC CSV files."
+}
