@@ -279,11 +279,11 @@ def add_security_headers(response):
     # Content Security Policy (basic)
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://d3js.org; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         "img-src 'self' data: https:; "
         "font-src 'self' https://cdnjs.cloudflare.com; "
-        "connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://d3js.org; "
         "frame-ancestors 'none';"
     )
     response.headers['Content-Security-Policy'] = csp
