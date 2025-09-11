@@ -14,8 +14,8 @@ echo "Daily script: $DAILY_SCRIPT"
 # Create cache directory if it doesn't exist
 mkdir -p /tmp/congressional_cache
 
-# Create daily cron job entry (runs at 6 AM daily)
-CRON_ENTRY="0 6 * * * cd $PROJECT_DIR && docker exec -e CONGRESSGOV_API_KEY=YfJ2ndXbpuhnFtPheZlUUmA3P9WFmYZdgxOHpdHG congressional-app python3 /app/scripts/enhanced_daily_update.py --congress 119 --max-bills 100 >> /tmp/enhanced_bill_discovery.log 2>&1"
+# Create daily cron job entry (runs at 6 AM daily) using host venv and 30-day lookback
+CRON_ENTRY="0 6 * * * cd $PROJECT_DIR && CONGRESSGOV_API_KEY=YfJ2ndXbpuhnFtPheZlUUmA3P9WFmYZdgxOHpdHG $PROJECT_DIR/venv/bin/python $DAILY_SCRIPT --congress 119 --max-bills 100 --days-back 30 >> /tmp/enhanced_bill_discovery.log 2>&1"
 
 # Check if daily cron job already exists
 if crontab -l 2>/dev/null | grep -q "enhanced_daily_update.py\|update_sponsors_cosponsors_daily.py"; then
@@ -38,7 +38,7 @@ echo "To view daily discovery logs:"
 echo "  tail -f /tmp/enhanced_bill_discovery.log"
 echo ""
 echo "To test the script manually:"
-echo "  cd $PROJECT_DIR && docker exec -e CONGRESSGOV_API_KEY=YfJ2ndXbpuhnFtPheZlUUmA3P9WFmYZdgxOHpdHG congressional-app python3 /app/scripts/enhanced_daily_update.py --congress 119 --max-bills 50"
+echo "  cd $PROJECT_DIR && CONGRESSGOV_API_KEY=YfJ2ndXbpuhnFtPheZlUUmA3P9WFmYZdgxOHpdHG venv/bin/python scripts/enhanced_daily_update.py --congress 119 --max-bills 50 --days-back 30"
 echo ""
 echo "To remove the daily job:"
 echo "  crontab -l | grep -v 'enhanced_daily_update.py' | crontab -"

@@ -378,17 +378,26 @@ class DailyRollcallBillUpdater:
                         if not existing_bill:
                             # Create basic bill record
                             logger.info(f"Creating new bill {bill_id} with title: {bill_data.get('title', 'NO TITLE')}")
+                            # Determine chamber from bill type
+                            bt_lower = (bill_data.get('type') or '').lower()
+                            if bt_lower in ['hr', 'hjres', 'hconres', 'hres']:
+                                chamber_value = 'house'
+                            elif bt_lower in ['s', 'sjres', 'sconres', 'sres']:
+                                chamber_value = 'senate'
+                            else:
+                                chamber_value = 'house'  # safe default, but types above should cover
+
                             new_bill = Bill(
                                 bill_id=bill_id,
                                 congress=congress,
-                                chamber='house',  # Default to house for now
-                                type=bill_data.get('type', ''),
-                                number=int(bill_data.get('number', 0)) if bill_data.get('number', '').isdigit() else 0,
+                                chamber=chamber_value,
+                                type=bt_lower,
+                                number=int(bill_data.get('number', 0)) if str(bill_data.get('number', '')).isdigit() else 0,
                                 title=bill_data.get('title', ''),
-                                introduced_date=None,  # Will be updated later
-                                sponsor_bioguide=None,  # Will be updated later
-                                policy_area=None,  # Will be updated later
-                                summary_short=''  # Will be updated later
+                                introduced_date=None,
+                                sponsor_bioguide=None,
+                                policy_area=None,
+                                summary_short=''
                             )
                             session.add(new_bill)
                             session.flush()

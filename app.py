@@ -839,7 +839,8 @@ def get_bills():
             .outerjoin(Member, Bill.sponsor_bioguide == Member.member_id_bioguide)\
             .outerjoin(cosponsor_subquery, Bill.bill_id == cosponsor_subquery.c.bill_id)\
             .outerjoin(latest_action_filtered, Bill.bill_id == latest_action_filtered.c.bill_id)\
-            .filter(Bill.chamber == 'house')
+            .filter(Bill.chamber == 'house')\
+            .filter(Bill.type.in_(['hr', 'hres', 'hjres', 'hconres']))
             
             # Execute query and build response
             bill_data = []

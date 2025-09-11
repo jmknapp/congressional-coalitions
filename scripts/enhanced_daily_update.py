@@ -113,130 +113,88 @@ class EnhancedDailySponsorsCosponsorsUpdater:
             return selected
     
     def discover_new_bills(self, congress: int = 119, days_back: int = 7) -> List[str]:
-        """Discover new bills introduced in the last N days."""
+        """Discover new bills in the last N days using a date-filtered query.
+
+        Uses the root /v3/bill endpoint with fromDateTime to ensure we get the most
+        recently updated/introduced items without scanning thousands of older pages.
+        """
         logger.info(f"Discovering new bills for Congress {congress} (last {days_back} days)")
-        
+
         cutoff_date = date.today() - timedelta(days=days_back)
-        new_bill_ids = []
-        
+        # Congress.gov expects Zulu time format: YYYY-MM-DDTHH:MM:SSZ
+        from_dt = f"{cutoff_date.strftime('%Y-%m-%d')}T00:00:00Z"
+        new_bill_ids: List[str] = []
+
         # Get existing bill IDs to avoid duplicates
         with get_db_session() as session:
             existing_bills = {bill.bill_id for bill in session.query(Bill).filter(
                 Bill.congress == congress
-            ).all()}  # Remove chamber filter to include all bills
-        
+            ).all()}
+
         logger.info(f"Found {len(existing_bills)} existing bills in database")
-        
-        # Base URL for Congress.gov bills API
-        base_url = f"https://api.congress.gov/v3/bill"
+
+        base_url = "https://api.congress.gov/v3/bill"
         headers = {'X-API-Key': self.congressgov_api_key}
-        
-        # Check all bill types (House and Senate), but limit to avoid processing too many
-        bill_types = ['hr', 'hconres', 'hjres', 'hres', 's', 'sconres', 'sjres', 'sres']
-        max_new_bills = 50  # Limit to avoid processing too many bills
-        
-        for bill_type in bill_types:
-            if len(new_bill_ids) >= max_new_bills:
-                logger.info(f"Reached limit of {max_new_bills} new bills, stopping discovery")
-                break
-                
-            logger.info(f"Checking for new {bill_type} bills...")
-            
-            # Paginate through results using offset until cap reached
-            offset = 0
-            # Smaller pages for heavy resolution streams
-            page_limit = 50 if bill_type in ['hres', 'sres'] else 100
-            max_pages_per_type = 5  # hard cap per type to avoid long scans
-            pages_scanned = 0
-            consecutive_no_new = 0
-            while len(new_bill_ids) < max_new_bills and pages_scanned < max_pages_per_type:
-                # Use path parameters to strictly scope to the requested congress and bill type
-                url_type = f"{base_url}/{congress}/{bill_type}"
+
+        # We page through results ordered by updateDate desc (server default when fromDateTime is provided)
+        offset = 0
+        page_limit = 250  # higher limit to reduce pagination churn
+        hard_cap = 1000   # do not scan forever
+        scanned = 0
+
+        try:
+            while scanned < hard_cap and len(new_bill_ids) < 200:
                 params = {
                     'format': 'json',
                     'limit': page_limit,
                     'offset': offset,
-                    # Prefer most-recent pages first
-                    'sort': 'updateDate',
-                    'sortOrder': 'desc'
+                    'fromDateTime': from_dt,
+                    'congress': congress
                 }
-                try:
-                    response = self.session.get(url_type, headers=headers, params=params, timeout=20)
-                    logger.info(f"API response status: {response.status_code} (type={bill_type}, offset={offset})")
-                    if response.status_code != 200:
-                        logger.error(f"API error: {response.status_code} - {response.text}")
-                        break
-
-                    data = response.json()
-                    bills_list = data.get('bills', []) or []
-                    logger.info(f"API returned {len(bills_list)} bills for {bill_type} (offset={offset})")
-                    if offset == 0 and bills_list:
-                        sample = bills_list[0]
-                        logger.info(f"First bill structure: {list(sample.keys())}")
-                        logger.info(f"Sample bill (congress={sample.get('congress')}): {sample}")
-
-                    if not bills_list:
-                        break
-
-                    added_this_page = 0
-                    all_older_than_cutoff = True
-                    for bill_data in bills_list:
-                        congress_num = bill_data.get('congress')
-                        resp_bill_type = bill_data.get('type', '')
-                        bt = resp_bill_type.lower() if isinstance(resp_bill_type, str) else ''
-                        bill_number = bill_data.get('number')
-                        # Parse updateDate for recency gating
-                        upd_str = bill_data.get('updateDate')
-                        try:
-                            upd_dt = datetime.strptime(upd_str, '%Y-%m-%d').date() if upd_str else None
-                        except Exception:
-                            upd_dt = None
-
-                        # Filter strictly to requested congress
-                        if congress_num and int(congress_num) != int(congress):
-                            continue
-
-                        if upd_dt and upd_dt >= cutoff_date:
-                            all_older_than_cutoff = False
-
-                        if congress_num and bt and bill_number:
-                            our_bill_id = f"{bt}-{bill_number}-{congress_num}"
-                            if our_bill_id not in existing_bills and our_bill_id not in new_bill_ids:
-                                new_bill_ids.append(our_bill_id)
-                                added_this_page += 1
-                                if len(new_bill_ids) >= max_new_bills:
-                                    break
-                        else:
-                            pass  # Skip invalid bill data silently
-
-                    # Advance offset
-                    offset += page_limit
-                    pages_scanned += 1
-                    consecutive_no_new = 0 if added_this_page > 0 else consecutive_no_new + 1
-                    # If everything on this page is older than cutoff, count as no-new page
-                    if all_older_than_cutoff:
-                        consecutive_no_new += 1
-                    # If several pages in a row add nothing, stop scanning this type
-                    if consecutive_no_new >= 2:
-                        logger.info(f"No new bills found in last {consecutive_no_new} pages for {bill_type}; moving on")
-                        break
-                    # Small delay to be kind to API
-                    time.sleep(0.5)
-
-                    if len(new_bill_ids) >= max_new_bills:
-                        break
-                except requests.exceptions.ReadTimeout:
-                    logger.warning(f"Read timeout for {bill_type} at offset {offset}; retrying next page")
-                    # Advance to next page to avoid sticky page
-                    offset += page_limit
-                    pages_scanned += 1
-                    time.sleep(1.0)
-                    continue
-                except Exception as e:
-                    logger.error(f"Error checking {bill_type} bills: {e}")
-                    # On unexpected errors, move to next bill type
+                resp = self.session.get(base_url, headers=headers, params=params, timeout=25)
+                logger.info(f"Discovery API status: {resp.status_code} (offset={offset})")
+                if resp.status_code != 200:
+                    logger.error(f"Discovery API error: {resp.status_code} - {resp.text}")
                     break
-        
+
+                data = resp.json()
+                items = data.get('bills', []) or []
+                logger.info(f"Discovery returned {len(items)} items (offset={offset})")
+                if not items:
+                    break
+
+                added_this_page = 0
+                for item in items:
+                    try:
+                        item_congress = int(item.get('congress')) if item.get('congress') is not None else None
+                    except Exception:
+                        item_congress = None
+
+                    if item_congress != int(congress):
+                        continue
+
+                    bill_type = (item.get('type') or '').lower()
+                    bill_number = item.get('number')
+                    if not bill_type or not bill_number:
+                        continue
+
+                    our_bill_id = f"{bill_type}-{bill_number}-{congress}"
+                    if our_bill_id not in existing_bills and our_bill_id not in new_bill_ids:
+                        new_bill_ids.append(our_bill_id)
+                        added_this_page += 1
+
+                scanned += len(items)
+                offset += page_limit
+
+                # If nothing new appeared on this page, but results exist, continue one more page
+                if added_this_page == 0 and len(items) < page_limit:
+                    # Likely reached the end of the recent window
+                    break
+
+                time.sleep(0.3)
+        except Exception as e:
+            logger.error(f"Error during discovery: {e}")
+
         logger.info(f"Discovered {len(new_bill_ids)} new bills")
         return new_bill_ids
 
@@ -262,7 +220,9 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                             chamber = 'house' if bill_type_from_id.startswith('h') else 'senate'
 
                             bill_info = bill_data.get('bill', {}) if isinstance(bill_data, dict) else {}
-                            title = bill_info.get('title') or bill_data.get('title', '')
+                            # Truncate excessively long titles to fit DB column
+                            raw_title = bill_info.get('title') or bill_data.get('title', '')
+                            title = raw_title[:1000] if isinstance(raw_title, str) else raw_title
                             introduced_raw = bill_info.get('introducedDate') or bill_data.get('introducedDate')
                             introduced_date = datetime.strptime(introduced_raw, '%Y-%m-%d').date() if introduced_raw else None
                             sponsors = bill_info.get('sponsors') or bill_data.get('sponsors') or []
@@ -441,7 +401,9 @@ class EnhancedDailySponsorsCosponsorsUpdater:
                 core_fields_updated = False
                 
                 # Check if we have core field data to backfill
-                title = bill_info.get('title') or bill_data.get('title', '')
+                # Truncate excessively long titles to fit DB column
+                raw_title = bill_info.get('title') or bill_data.get('title', '')
+                title = raw_title[:1000] if isinstance(raw_title, str) else raw_title
                 introduced_raw = bill_info.get('introducedDate') or bill_data.get('introducedDate')
                 introduced_date = datetime.strptime(introduced_raw, '%Y-%m-%d').date() if introduced_raw else None
                 
