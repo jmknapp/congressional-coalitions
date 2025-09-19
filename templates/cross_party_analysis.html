@@ -242,6 +242,9 @@
             // Show content
             document.getElementById('loading').style.display = 'none';
             document.getElementById('content').style.display = 'block';
+
+            // Populate caucus badges after content is rendered
+            populateCaucusBadgesForCrossVoters();
         }
         
         function createVoteCard(vote, index) {
@@ -280,6 +283,7 @@
                         <a href="/member/${member.member_id}" target="_blank" rel="noopener noreferrer">
                             ${member.name} (${member.state}-${member.district})
                         </a>
+                        <span class="caucus-badges ms-1" data-member-id="${member.member_id}"></span>
                         <span class="${voteClass} ms-1">${member.vote}</span>
                     </span>
                 `;
@@ -342,6 +346,59 @@
                 '</div>';
             
             return card;
+        }
+
+        // Fetch members and populate caucus badges for cross voters
+        async function populateCaucusBadgesForCrossVoters() {
+            try {
+                const response = await fetch('/api/members');
+                const members = await response.json();
+                const membersById = {};
+                members.forEach(m => { membersById[m.id] = m; });
+
+                document.querySelectorAll('.caucus-badges[data-member-id]').forEach(container => {
+                    const memberId = container.getAttribute('data-member-id');
+                    const m = membersById[memberId];
+                    if (!m) return;
+                    let badges = '';
+                    if (m.is_freedom_caucus) {
+                        badges += '<a href="/caucus/1" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge fc-pink-badge me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Freedom Caucus"><i class="fas fa-scale-unbalanced me-1"></i>FC</span></a>';
+                    }
+                    if (m.is_progressive_caucus) {
+                        badges += '<a href="/caucus/2" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Progressive Caucus"><i class="fas fa-arrow-trend-up me-1"></i>PC</span></a>';
+                    }
+                    if (m.is_blue_dog_coalition) {
+                        badges += '<a href="/caucus/3" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-info text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="Blue Dog Coalition"><i class="fas fa-dog me-1"></i>BD</span></a>';
+                    }
+                    if (m.is_maga_republican) {
+                        badges += '<a href="/caucus/5" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-danger text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="MAGA Republicans"><i class="fas fa-biohazard me-1"></i>MAGA</span></a>';
+                    }
+                    if (m.is_congressional_black_caucus) {
+                        badges += '<a href="/caucus/4" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #1a237e;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Black Caucus"><i class="fas fa-users me-1"></i>CBC</span></a>';
+                    }
+                    if (m.is_true_blue_democrat) {
+                        badges += '<a href="/caucus/6" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge bg-primary text-white me-1 mb-1" data-bs-toggle="tooltip" data-bs-placement="top" title="True Blue Democrats"><i class="fas fa-heart me-1"></i>TB</span></a>';
+                    }
+                    if (m.is_hispanic_caucus) {
+                        badges += '<a href="/caucus/7" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #2e7d32;" data-bs-toggle="tooltip" data-bs-placement="top" title="Congressional Hispanic Caucus"><i class="fas fa-flag me-1"></i>CHC</span></a>';
+                    }
+                    if (m.is_new_democrat_coalition) {
+                        badges += '<a href="/caucus/8" target="_blank" rel="noopener noreferrer" class="text-decoration-none"><span class="badge text-white me-1 mb-1" style="background-color: #1976d2;" data-bs-toggle="tooltip" data-bs-placement="top" title="New Democrat Coalition"><i class="fas fa-chart-line me-1"></i>NDC</span></a>';
+                    }
+                    container.innerHTML = badges;
+                });
+
+                // Re-init tooltips for dynamically added badges
+                const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                tooltipTriggerList.map(function(tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl, {
+                        delay: { show: 200, hide: 100 },
+                        trigger: 'hover focus'
+                    });
+                });
+            } catch (e) {
+                console.error('Failed to populate caucus badges', e);
+            }
         }
         
         

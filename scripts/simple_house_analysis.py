@@ -509,3 +509,4 @@ if __name__ == "__main__":
     print("\n=== MOST DIFFERENT VOTERS ===")
     for pair in results['member_analysis']['most_different_voters'][:5]:
         print(f"{pair['member1']} ({pair['party1']}) & {pair['member2']} ({pair['party2']}): {pair['agreement']:.1f}% agreement")
+    

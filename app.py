@@ -33,6 +33,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor, Action, BillSubject
+from src.analysis.vote_predictor import score_bill_members, rank_likely_defectors, compute_cosponsor_party_counts
 from scripts.setup_caucus_tables import Caucus, CaucusMembership
 from scripts.setup_challengers_table import Challenger2026
 from scripts.setup_fec_candidates_table import FECCandidate
@@ -212,10 +213,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=DEV_SESSION_TIMEOUT
 # Configure CORS with security restrictions
 CORS(app, origins=os.environ.get('ALLOWED_ORIGINS', '*').split(','))
 
-# Configure rate limiting
+# Configure rate limiting (no global default limits; use per-route where needed)
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["10000 per day", "2000 per hour"],  # Increased limits temporarily
     storage_uri="memory://"  # Use in-memory storage for development
 )
 limiter.init_app(app)
@@ -448,6 +448,51 @@ def get_summary():
                     'description': f'119th Congress (since {congress_start.strftime("%B %d, %Y")})'
                 },
                 'note': f'House-only data since 119th Congress start ({days_since_start} days)'
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# -------------------------------------------------------------
+# Predict votes (dev server)
+# -------------------------------------------------------------
+@app.route('/api/predict_votes', methods=['POST'])
+def predict_votes():
+    """Predict vote probabilities and likely defectors for a given bill_id.
+
+    Body JSON:
+      - bill_id (required)
+      - chamber (optional: 'house'|'senate')
+      - top_k (optional, default 25)
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        bill_id = payload.get('bill_id')
+        chamber = (payload.get('chamber') or '').lower() or None
+        top_k = int(payload.get('top_k') or 25)
+        if not bill_id:
+            return jsonify({'error': 'bill_id is required'}), 400
+
+        with get_db_session() as session:
+            scores = score_bill_members(session, bill_id=bill_id, chamber=chamber)
+            bill = session.query(Bill).filter(Bill.bill_id == bill_id).first()
+            sponsor_party = None
+            if bill and bill.sponsor_bioguide:
+                sponsor = session.query(Member).filter(Member.member_id_bioguide == bill.sponsor_bioguide).first()
+                sponsor_party = sponsor.party if sponsor else None
+            # Fallback: infer sponsor party from cosponsor composition if unknown
+            if not sponsor_party:
+                num_dem, num_rep, num_ind = compute_cosponsor_party_counts(session, bill_id)
+                if num_dem > num_rep:
+                    sponsor_party = 'D'
+                elif num_rep > num_dem:
+                    sponsor_party = 'R'
+            defectors = rank_likely_defectors(scores, sponsor_party)
+            return jsonify({
+                'bill_id': bill_id,
+                'chamber': chamber,
+                'sponsor_party': sponsor_party,
+                'scores': scores,
+                'top_defectors': defectors[:top_k]
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -847,6 +892,10 @@ def get_bills():
             for row in query.all():
                 sponsor_name = f"{row.first} {row.last}" if row.first and row.last else "Unknown"
                 
+                # Fallback: if no actions exist for a bill, use introduced_date as the last action date
+                last_action_date_val = row.action_date or row.introduced_date
+                last_action_code_val = row.action_code if row.action_date else ('INTRODUCED' if row.introduced_date else None)
+
                 bill_data.append({
                     'id': row.bill_id,
                     'title': row.title or '',
@@ -859,8 +908,8 @@ def get_bills():
                     'sponsor_party': row.party,
                     'cosponsor_count': row.cosponsor_count or 0,
                     'introduced_date': row.introduced_date.isoformat() if row.introduced_date else None,
-                    'last_action_date': row.action_date.isoformat() if row.action_date else None,
-                    'last_action_code': row.action_code
+                    'last_action_date': last_action_date_val.isoformat() if last_action_date_val else None,
+                    'last_action_code': last_action_code_val
                 })
             
             # Sort bills by last action date descending (most recent first), then by bill number descending
@@ -1800,6 +1849,7 @@ def get_member_details(bioguide_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/vote/<rollcall_id>')
+@limiter.exempt
 def vote_details_page(rollcall_id):
     """Render a page showing bill/amendment details and the full vote record."""
     try:
@@ -1844,6 +1894,7 @@ def vote_details_page(rollcall_id):
         return render_template('vote.html', error=str(e), rollcall=None, bill=None, votes=[])
 
 @app.route('/bill/<bill_id>')
+@limiter.exempt
 def bill_details_page(bill_id):
     """Render a page showing bill details, sponsor, cosponsors, related rollcalls."""
     try:

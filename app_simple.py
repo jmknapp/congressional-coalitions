@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.utils.database import get_db_session
 from scripts.setup_db import Member, Bill, Rollcall, Vote, Cosponsor
+from src.analysis.vote_predictor import score_bill_members, rank_likely_defectors
 
 app = Flask(__name__)
 CORS(app)
@@ -260,6 +261,44 @@ def get_cosponsors(bill_id):
                 })
             
             return jsonify(cosponsor_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/predict_votes', methods=['POST'])
+def predict_votes():
+    """Predict vote probabilities for members on a bill and rank likely defectors.
+
+    Request JSON options:
+    - bill_id: use DB to infer sponsor party and cosponsors
+    - chamber: optional filter ('house' or 'senate')
+    - top_k: optional, number of top likely defectors to return (default 25)
+    Returns JSON with scores and top_defectors.
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        bill_id = payload.get('bill_id')
+        chamber = (payload.get('chamber') or '').lower() or None
+        top_k = int(payload.get('top_k') or 25)
+        if not bill_id:
+            return jsonify({'error': 'bill_id is required'}), 400
+
+        with get_db_session() as session:
+            # Compute scores
+            scores = score_bill_members(session, bill_id=bill_id, chamber=chamber)
+            # Determine sponsor party for defection ranking
+            bill = session.query(Bill).filter(Bill.bill_id == bill_id).first()
+            sponsor_party = None
+            if bill and bill.sponsor_bioguide:
+                sponsor = session.query(Member).filter(Member.member_id_bioguide == bill.sponsor_bioguide).first()
+                sponsor_party = sponsor.party if sponsor else None
+            defectors = rank_likely_defectors(scores, sponsor_party)
+            return jsonify({
+                'bill_id': bill_id,
+                'chamber': chamber,
+                'sponsor_party': sponsor_party,
+                'scores': scores,
+                'top_defectors': defectors[:top_k]
+            })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

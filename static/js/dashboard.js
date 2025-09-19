@@ -199,7 +199,7 @@ async function loadBills() {
             }
             const row = document.createElement('tr');
             const billHref = `/bill/${bill.id}`;
-            // Format last action date
+            // Format last action date (fallback to introduced date if no actions)
             let lastActionDisplay = 'N/A';
             if (bill.last_action_date) {
                 const actionDate = new Date(bill.last_action_date).toLocaleDateString();
@@ -208,6 +208,9 @@ async function loadBills() {
                 } else {
                     lastActionDisplay = actionDate;
                 }
+            } else if (bill.introduced_date) {
+                const introDate = new Date(bill.introduced_date).toLocaleDateString();
+                lastActionDisplay = `<div><strong>${introDate}</strong></div><div class="text-muted small">INTRODUCED</div>`;
             }
             
             // Format sponsor with link to member page if bioguide ID is available
@@ -216,12 +219,18 @@ async function loadBills() {
                 const memberHref = `/member/${bill.sponsor_bioguide}`;
                 sponsorDisplay = `<a href="${memberHref}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">${bill.sponsor}</a>`;
             }
+            // Append party badge (R/D/I) with color
+            const sponsorParty = (bill.sponsor_party || '').toUpperCase();
+            const validParties = ['R', 'D', 'I'];
+            const partyBadge = validParties.includes(sponsorParty)
+                ? ` <span class="party-badge party-${sponsorParty.toLowerCase()}">${sponsorParty}</span>`
+                : '';
             
             row.innerHTML = `
                 <td>${lastActionDisplay}</td>
                 <td><strong><a href="${billHref}" target="_blank" rel="noopener noreferrer">${bill.type} ${bill.number}</a></strong></td>
                 <td>${(bill.title || '').substring(0, 50)}${(bill.title || '').length > 50 ? '...' : ''}</td>
-                <td>${sponsorDisplay}</td>
+                <td>${sponsorDisplay}${partyBadge}</td>
                 <td>${bill.cosponsor_count}</td>
             `;
             tbody.appendChild(row);
